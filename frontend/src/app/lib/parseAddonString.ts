@@ -1,3 +1,5 @@
+export type ItemOrigin = "equipped" | "bags" | "vault";
+
 export interface ParsedItem {
   slot: string;
   simc_string: string;
@@ -8,6 +10,7 @@ export interface ParsedItem {
   enchant_id: number;
   gem_id: number;
   is_equipped: boolean;
+  origin: ItemOrigin;
 }
 
 export type ItemsBySlot = Record<string, ParsedItem[]>;
@@ -32,14 +35,34 @@ const SLOT_REGEX = new RegExp(
 );
 
 // Bag items for these slots should appear in both paired slots
-const PAIRED_SLOTS: Record<string, string> = {
+const BASE_PAIRED_SLOTS: Record<string, string> = {
   finger1: "finger2",
   finger2: "finger1",
   trinket1: "trinket2",
   trinket2: "trinket1",
 };
 
-function parseItemProps(itemStr: string): Omit<ParsedItem, "slot" | "is_equipped" | "simc_string"> {
+const DUAL_WIELD_SPECS = new Set([
+  "frost", "fury", "enhancement", "windwalker", "brewmaster",
+  "havoc", "vengeance", "outlaw", "assassination", "subtlety",
+]);
+
+function detectSpec(simcInput: string): string | null {
+  for (const line of simcInput.split("\n")) {
+    const m = line.trim().match(/^spec=(\w+)/);
+    if (m) return m[1].toLowerCase();
+  }
+  return null;
+}
+
+function getPairedSlots(): Record<string, string> {
+  // Weapons are NOT paired here — dual-wield crossover for equipped weapons
+  // is handled separately in the assembly phase, and bag weapons need inv_type
+  // checks that aren't available at parse time.
+  return BASE_PAIRED_SLOTS;
+}
+
+function parseItemProps(itemStr: string): Omit<ParsedItem, "slot" | "is_equipped" | "simc_string" | "origin"> {
   const idMatch = itemStr.match(/,id=(\d+)/);
   const ilvlMatch = itemStr.match(/(?:ilevel|ilvl)=(\d+)/);
   const nameMatch = itemStr.match(/name=([^,]+)/);
@@ -153,18 +176,37 @@ export function parseTalentLoadouts(simcInput: string): TalentLoadout[] {
 }
 
 export function parseAddonString(simcInput: string): ItemsBySlot {
+  const spec = detectSpec(simcInput);
+  const pairedSlots = getPairedSlots();
+
   const equipped: Record<string, ParsedItem> = {};
   const bagItems: Record<string, ParsedItem[]> = {};
 
   // Track the last "# Name (ilvl)" header line
   let pendingName = "";
   let pendingIlevel = 0;
+  let inVaultSection = false;
 
   for (const rawLine of simcInput.split("\n")) {
     const stripped = rawLine.trim();
 
     if (stripped.startsWith("#")) {
       const clean = stripped.replace(/^#+\s*/, "");
+
+      // Detect vault section boundaries
+      if (clean.toLowerCase() === "weekly reward choices") {
+        inVaultSection = true;
+        pendingName = "";
+        pendingIlevel = 0;
+        continue;
+      }
+      if (clean.toLowerCase() === "end of weekly reward choices") {
+        inVaultSection = false;
+        pendingName = "";
+        pendingIlevel = 0;
+        continue;
+      }
+
       const m = clean.match(SLOT_REGEX);
       if (m) {
         const slot = m[1].toLowerCase();
@@ -175,17 +217,19 @@ export function parseAddonString(simcInput: string): ItemsBySlot {
         if (!props.ilevel && pendingIlevel) props.ilevel = pendingIlevel;
         pendingName = "";
         pendingIlevel = 0;
+        const origin: ItemOrigin = inVaultSection ? "vault" : "bags";
         const entry: ParsedItem = {
           slot,
           simc_string: itemStr,
           is_equipped: false,
           ...props,
+          origin,
         };
         if (!bagItems[slot]) bagItems[slot] = [];
         bagItems[slot].push(entry);
 
         // Rings/trinkets: also add to the paired slot
-        const other = PAIRED_SLOTS[slot];
+        const other = pairedSlots[slot];
         if (other) {
           if (!bagItems[other]) bagItems[other] = [];
           bagItems[other].push({ ...entry, slot: other });
@@ -216,6 +260,7 @@ export function parseAddonString(simcInput: string): ItemsBySlot {
           simc_string: itemStr,
           is_equipped: true,
           ...props,
+          origin: "equipped",
         };
       }
     }
@@ -230,6 +275,18 @@ export function parseAddonString(simcInput: string): ItemsBySlot {
     if (equipped[slot]) {
       items.push(equipped[slot]);
       if (equipped[slot].item_id) seenIds.add(equipped[slot].item_id);
+    }
+
+    // For dual-wield specs, add the equipped weapon from the other hand as an alternative
+    if (spec && DUAL_WIELD_SPECS.has(spec)) {
+      const otherSlot = slot === "main_hand" ? "off_hand" : slot === "off_hand" ? "main_hand" : null;
+      if (otherSlot && equipped[otherSlot]) {
+        const otherItem = equipped[otherSlot];
+        if (otherItem.item_id > 0 && !seenIds.has(otherItem.item_id)) {
+          seenIds.add(otherItem.item_id);
+          items.push({ ...otherItem, slot, is_equipped: false, origin: "equipped" });
+        }
+      }
     }
 
     if (bagItems[slot]) {

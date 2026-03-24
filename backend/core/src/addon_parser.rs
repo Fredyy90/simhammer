@@ -9,6 +9,9 @@ pub const GEAR_SLOTS: &[&str] = &[
 ];
 
 fn paired_slot(slot: &str) -> Option<&'static str> {
+    // Weapons are NOT paired here — dual-wield crossover for equipped weapons
+    // is handled separately in the assembly phase, and bag weapons need inv_type
+    // checks that aren't available at parse time.
     match slot {
         "finger1" => Some("finger2"),
         "finger2" => Some("finger1"),
@@ -16,6 +19,26 @@ fn paired_slot(slot: &str) -> Option<&'static str> {
         "trinket2" => Some("trinket1"),
         _ => None,
     }
+}
+
+fn can_dual_wield(spec: &str) -> bool {
+    matches!(
+        spec,
+        "frost" | "fury" | "enhancement" | "windwalker" | "brewmaster"
+            | "havoc" | "vengeance"
+            | "outlaw" | "assassination" | "subtlety"
+    )
+}
+
+fn detect_spec(simc_input: &str) -> Option<String> {
+    let spec_re = Regex::new(r"^spec=(\w+)").unwrap();
+    for line in simc_input.lines() {
+        let trimmed = line.trim();
+        if let Some(caps) = spec_re.captures(trimmed) {
+            return Some(caps[1].to_lowercase());
+        }
+    }
+    None
 }
 
 pub fn title_case(s: &str) -> String {
@@ -96,17 +119,36 @@ pub fn parse_addon_string(simc_input: &str) -> Value {
     let slot_re = Regex::new(&slot_pattern).unwrap();
     let header_re = Regex::new(r"^#+\s*(.+?)\s*\((\d+)\)\s*$").unwrap();
 
+    let spec = detect_spec(simc_input).unwrap_or_default();
+    let dual_wield = can_dual_wield(&spec);
+
     let mut equipped: HashMap<String, Value> = HashMap::new();
     let mut bag_items: HashMap<String, Vec<Value>> = HashMap::new();
     let mut base_profile_lines: Vec<String> = Vec::new();
     let mut pending_name = String::new();
     let mut pending_ilevel: u64 = 0;
+    let mut in_vault_section = false;
 
     for raw_line in simc_input.lines() {
         let stripped = raw_line.trim();
 
         if stripped.starts_with('#') {
             let clean = stripped.trim_start_matches('#').trim();
+
+            // Detect vault section boundaries
+            if clean.eq_ignore_ascii_case("Weekly Reward Choices") {
+                in_vault_section = true;
+                pending_name.clear();
+                pending_ilevel = 0;
+                continue;
+            }
+            if clean.eq_ignore_ascii_case("End of Weekly Reward Choices") {
+                in_vault_section = false;
+                pending_name.clear();
+                pending_ilevel = 0;
+                continue;
+            }
+
             if let Some(caps) = slot_re.captures(clean) {
                 let slot = caps[1].to_lowercase();
                 let item_str = caps[2].to_string();
@@ -121,10 +163,13 @@ pub fn parse_addon_string(simc_input: &str) -> Value {
                 pending_name.clear();
                 pending_ilevel = 0;
 
+                let origin = if in_vault_section { "vault" } else { "bags" };
+
                 let entry = json!({
                     "slot": slot,
                     "simc_string": item_str,
                     "is_equipped": false,
+                    "origin": origin,
                     "item_id": props["item_id"],
                     "ilevel": props["ilevel"],
                     "name": props["name"],
@@ -172,6 +217,7 @@ pub fn parse_addon_string(simc_input: &str) -> Value {
                         "slot": slot,
                         "simc_string": item_str,
                         "is_equipped": true,
+                        "origin": "equipped",
                         "item_id": props["item_id"],
                         "ilevel": props["ilevel"],
                         "name": props["name"],
@@ -196,6 +242,27 @@ pub fn parse_addon_string(simc_input: &str) -> Value {
             let iid = eq["item_id"].as_u64().unwrap_or(0);
             if iid > 0 {
                 seen_ids.insert(iid);
+            }
+        }
+
+        // For dual-wield specs, add the equipped weapon from the other hand as an alternative
+        if dual_wield {
+            let other_slot = match slot.as_str() {
+                "main_hand" => Some("off_hand"),
+                "off_hand" => Some("main_hand"),
+                _ => None,
+            };
+            if let Some(other) = other_slot {
+                if let Some(other_eq) = equipped.get(other) {
+                    let iid = other_eq["item_id"].as_u64().unwrap_or(0);
+                    if iid > 0 && !seen_ids.contains(&iid) {
+                        seen_ids.insert(iid);
+                        let mut crossed = other_eq.clone();
+                        crossed["slot"] = json!(slot);
+                        crossed["is_equipped"] = json!(false);
+                        items.push(crossed);
+                    }
+                }
             }
         }
 

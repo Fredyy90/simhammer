@@ -208,6 +208,13 @@ export default function TopGearItemSelector({
     return maxIlvl && maxIlvl > currentIlvl ? maxIlvl : undefined;
   };
 
+  // Detect dual-wield: both main_hand and off_hand have equipped weapons
+  const isDualWield = useMemo(() => {
+    const mh = itemsBySlot.main_hand?.find((i) => i.is_equipped);
+    const oh = itemsBySlot.off_hand?.find((i) => i.is_equipped);
+    return !!mh && !!oh;
+  }, [itemsBySlot]);
+
   const visibleGroups = useMemo(() => {
     const result: {
       group: DisplayGroup;
@@ -218,16 +225,44 @@ export default function TopGearItemSelector({
       const equipped: DisplayItem[] = [];
       const alternatives: DisplayItem[] = [];
       const seenAltKeys = new Set<string>();
-      for (let si = 0; si < group.slots.length; si++) {
-        const slot = group.slots[si];
-        const items = itemsBySlot[slot];
+
+      // For dual-wield, determine the "other" weapon slot to pull crossover items from
+      const otherWeaponSlot =
+        isDualWield && group.slots.length === 1
+          ? group.slots[0] === "main_hand"
+            ? "off_hand"
+            : group.slots[0] === "off_hand"
+            ? "main_hand"
+            : null
+          : null;
+
+      // Collect items from this group's slots + crossover weapon items
+      const slotsToScan = [...group.slots];
+      if (otherWeaponSlot) slotsToScan.push(otherWeaponSlot);
+
+      for (let si = 0; si < slotsToScan.length; si++) {
+        const scanSlot = slotsToScan[si];
+        const isOtherWeaponSlot = si >= group.slots.length;
+        const displaySlot = isOtherWeaponSlot ? group.slots[0] : scanSlot;
+        const items = itemsBySlot[scanSlot];
         if (!items) continue;
         for (let idx = 0; idx < items.length; idx++) {
           const item = items[idx];
-          if (item.is_equipped) {
+
+          // For crossover items: skip equipped and non-1H weapons
+          if (isOtherWeaponSlot) {
+            if (item.is_equipped) continue;
+            const info = item.item_id > 0 ? itemInfoMap[item.item_id] : null;
+            // Only include confirmed one-hand weapons (inv_type 13). Skip if unknown.
+            if (info?.inventory_type !== 13) continue;
+          }
+
+          if (item.is_equipped && !isOtherWeaponSlot) {
+            const eqKey = `${item.item_id}:${[...item.bonus_ids].sort((a, b) => a - b).join(",")}`;
+            seenAltKeys.add(eqKey); // prevent duplicates from crossover
             equipped.push({
               item,
-              slot,
+              slot: displaySlot,
               index: idx,
               slotLabel:
                 group.slots.length > 1 ? `Slot ${si + 1}` : undefined,
@@ -236,27 +271,49 @@ export default function TopGearItemSelector({
             const key = `${item.item_id}:${[...item.bonus_ids].sort((a, b) => a - b).join(",")}`;
             if (seenAltKeys.has(key)) continue;
             // Filter by armor type compatibility
-            if (maxArmorSubclass != null && ARMOR_SLOTS.has(slot)) {
+            if (maxArmorSubclass != null && ARMOR_SLOTS.has(scanSlot)) {
               const info = item.item_id > 0 ? itemInfoMap[item.item_id] : null;
               const sub = info?.armor_subclass;
               if (sub != null && sub > 0 && sub > maxArmorSubclass) continue;
             }
             seenAltKeys.add(key);
-            alternatives.push({ item, slot, index: idx });
+            alternatives.push({ item, slot: displaySlot, index: idx });
           }
         }
       }
-      if (alternatives.length > 0) {
+      if (equipped.length > 0 || alternatives.length > 0) {
         equipped.sort((a, b) => getIlevel(b) - getIlevel(a));
         alternatives.sort((a, b) => getIlevel(b) - getIlevel(a));
         result.push({ group, equipped, alternatives });
       }
     }
     return result;
-  }, [itemsBySlot, itemInfoMap, maxArmorSubclass]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [itemsBySlot, itemInfoMap, maxArmorSubclass, isDualWield]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggleItem(displayItem: DisplayItem, group: DisplayGroup) {
-    const updated = { ...selectedItems };
+    const isSelecting = !isItemSelected(displayItem, group);
+
+    // Vault constraint: only one vault item can be selected at a time
+    if (isSelecting && displayItem.item.origin === "vault" && selectedVaultCount > 0) {
+      // Deselect the currently selected vault item first
+      const cleared = { ...selectedItems };
+      for (const slot of GEAR_SLOTS) {
+        const items = itemsBySlot[slot];
+        if (!items) continue;
+        const current = cleared[slot] || [];
+        cleared[slot] = current.filter(
+          (idx) => idx >= items.length || items[idx].origin !== "vault"
+        );
+      }
+      // Now proceed with selecting the new vault item using the cleared state
+      applyToggle(displayItem, group, cleared);
+      return;
+    }
+
+    applyToggle(displayItem, group, { ...selectedItems });
+  }
+
+  function applyToggle(displayItem: DisplayItem, group: DisplayGroup, updated: Record<string, number[]>) {
     if (group.slots.length === 1) {
       const slot = displayItem.slot;
       const current = updated[slot] || [];
@@ -309,6 +366,22 @@ export default function TopGearItemSelector({
       return idx >= 0 && (selectedItems[slot] || []).includes(idx);
     });
   }
+
+  // Count unique selected vault items (deduplicate across paired slots by item_id)
+  const selectedVaultCount = useMemo(() => {
+    const seenVaultIds = new Set<number>();
+    for (const slot of GEAR_SLOTS) {
+      const items = itemsBySlot[slot];
+      if (!items) continue;
+      const selected = selectedItems[slot] || [];
+      for (const idx of selected) {
+        if (idx < items.length && items[idx].origin === "vault") {
+          seenVaultIds.add(items[idx].item_id);
+        }
+      }
+    }
+    return seenVaultIds.size;
+  }, [itemsBySlot, selectedItems]);
 
   const comboCount = calculateCombinations(itemsBySlot, selectedItems);
 
@@ -424,13 +497,15 @@ export default function TopGearItemSelector({
                 info?.name || di.item.name || `Item ${di.item.item_id}`;
               const icon = info?.icon || "inv_misc_questionmark";
 
+              const isVault = di.item.origin === "vault";
+
               return (
                 <label
                   key={`alt-${altIdx}`}
                   className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors group ${
                     checked
-                      ? "bg-gold/[0.07]"
-                      : "hover:bg-white/[0.02]"
+                      ? isVault ? "bg-amber-400/[0.12] ring-2 ring-amber-400/50" : "bg-gold/[0.07]"
+                      : isVault ? "bg-amber-400/[0.04] ring-1 ring-amber-400/30 hover:ring-amber-400/50 hover:bg-amber-400/[0.08]" : "hover:bg-white/[0.02]"
                   }`}
                 >
                   <input
@@ -462,7 +537,7 @@ export default function TopGearItemSelector({
                       </svg>
                     )}
                   </div>
-                  <div className="w-6 h-6 shrink-0 rounded overflow-hidden ring-1 ring-white/5">
+                  <div className={`w-6 h-6 shrink-0 rounded overflow-hidden ring-2 ${isVault ? "ring-amber-400/70" : "ring-white/5"}`}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={getIconUrl(icon)}
@@ -534,8 +609,11 @@ function ItemDetails({
   const hasUpgrade = !!upgrade;
   const isMenuOpen = upgradeMenuFor === upgradeMenuKey;
 
+  const isVault = di.item.origin === "vault";
+
   // Build subtitle parts
   const parts: { text: string; color?: string }[] = [];
+  if (isVault) parts.push({ text: "Great Vault", color: "text-amber-400/80" });
   if (tag) parts.push({ text: tag });
   if (upgrade) parts.push({ text: upgrade });
   if (gem?.name) {

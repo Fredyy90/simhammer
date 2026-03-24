@@ -293,6 +293,8 @@ pub fn get_item_info(item_id: u64, bonus_ids: Option<&[u64]>) -> Option<Value> {
         0
     };
 
+    let inventory_type = item.get("inventoryType").and_then(|v| v.as_u64()).unwrap_or(0);
+
     Some(serde_json::json!({
         "item_id": item_id,
         "name": item.get("name").and_then(|n| n.as_str()).unwrap_or("Unknown"),
@@ -304,6 +306,7 @@ pub fn get_item_info(item_id: u64, bonus_ids: Option<&[u64]>) -> Option<Value> {
         "sockets": sockets,
         "upgrade": upgrade,
         "armor_subclass": armor_subclass,
+        "inventory_type": inventory_type,
     }))
 }
 

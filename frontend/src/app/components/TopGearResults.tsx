@@ -16,6 +16,7 @@ interface ResultItem {
   gem_id?: number;
   is_kept?: boolean;
   encounter?: string;
+  origin?: string;
 }
 
 interface TopGearResult {
@@ -486,6 +487,11 @@ function GearSlotRow({
               New
             </span>
           )}
+          {item.origin === "vault" && (
+            <span className="shrink-0 text-[8px] uppercase tracking-wider font-bold text-amber-400 bg-amber-400/10 px-1 py-px rounded">
+              Vault
+            </span>
+          )}
         </div>
         <p className="text-[9px] text-muted truncate">
           {SLOT_LABELS[slot] || slot}
@@ -534,6 +540,9 @@ function ItemTag({ item, info, enchant, gem }: { item: ResultItem; info?: ItemIn
       >
         {name}
       </a>
+      {item.origin === "vault" && (
+        <span className="text-[8px] font-bold text-amber-400 uppercase tracking-wider shrink-0">V</span>
+      )}
       {enchant?.name && (
         <span className="text-[9px] text-emerald-400/70 truncate max-w-[70px]" title={enchant.name}>
           {enchant.name}

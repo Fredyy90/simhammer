@@ -198,6 +198,11 @@ pub fn generate_top_gear_input(
             continue;
         }
 
+        // Vault constraint: only one vault item can be picked
+        if !validate_vault_constraint(&gear_set) {
+            continue;
+        }
+
         // Check if this is identical to baseline (all equipped)
         let is_baseline = GEAR_SLOTS.iter().all(|slot| {
             gear_set
@@ -379,6 +384,7 @@ fn item_meta(item: &Value, slot: &str) -> Value {
         "enchant_id": item.get("enchant_id").and_then(|v| v.as_u64()).unwrap_or(0),
         "gem_id": item.get("gem_id").and_then(|v| v.as_u64()).unwrap_or(0),
         "is_kept": item.get("is_equipped").and_then(|v| v.as_bool()).unwrap_or(false),
+        "origin": item.get("origin").and_then(|v| v.as_str()).unwrap_or("bags"),
     })
 }
 
@@ -522,6 +528,20 @@ pub fn generate_droptimizer_input(
 
     let combo_count = combo_idx - 2;
     (lines.join("\n"), combo_count, combo_metadata)
+}
+
+/// Vault constraint: at most one vault item across all slots.
+fn validate_vault_constraint(gear_set: &HashMap<String, Value>) -> bool {
+    let mut vault_count = 0;
+    for item in gear_set.values() {
+        if item.get("origin").and_then(|v| v.as_str()) == Some("vault") {
+            vault_count += 1;
+            if vault_count > 1 {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 fn validate_unique_equipped(gear_set: &HashMap<String, Value>) -> bool {
