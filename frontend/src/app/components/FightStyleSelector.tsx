@@ -21,10 +21,10 @@ export default function FightStyleSelector({ value, onChange }: FightStyleSelect
             key={fs.value}
             type="button"
             onClick={() => onChange(fs.value)}
-            className={`flex-1 rounded-lg border px-2 py-2 text-[12px] font-medium transition-all ${
+            className={`flex-1 rounded-lg border px-2 py-2 text-xs font-medium transition-all duration-150 ${
               active
-                ? 'border-white bg-white text-black'
-                : 'border-border bg-surface-2 text-gray-400 hover:border-gray-500 hover:text-white'
+                ? 'border-zinc-500 bg-zinc-800 text-white'
+                : 'border-border bg-surface-2 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
             }`}
           >
             {fs.label}

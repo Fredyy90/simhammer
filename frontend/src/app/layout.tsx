@@ -33,44 +33,44 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-screen">
         <UpdateChecker />
         <SimProvider>
-          <header className="desktop-drag sticky top-0 z-50 border-b border-border bg-bg/80 backdrop-blur-xl">
-            <div className="flex h-12 items-center justify-between px-6">
+          <header className="desktop-drag sticky top-0 z-50 border-b border-border/80 bg-bg/90 backdrop-blur-xl">
+            <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
               <a
                 href="https://simhammer.com"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="desktop-no-drag group flex items-center gap-2"
+                className="desktop-no-drag group flex items-center gap-2.5"
               >
-                <div className="flex h-5 w-5 items-center justify-center rounded bg-gold/90">
-                  <svg className="h-3 w-3 text-black" viewBox="0 0 16 16" fill="currentColor">
+                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-b from-gold to-gold-dark shadow-sm">
+                  <svg className="h-3.5 w-3.5 text-black" viewBox="0 0 16 16" fill="currentColor">
                     <path d="M3 2l10 6-10 6V2z" />
                   </svg>
                 </div>
-                <span className="text-sm font-semibold text-gray-200 transition-colors group-hover:text-white">
+                <span className="text-[15px] font-bold tracking-tight text-gray-100 transition-colors group-hover:text-white">
                   SimHammer
                 </span>
               </a>
-              <div className="desktop-no-drag flex items-center gap-2">
+              <div className="desktop-no-drag flex items-center gap-1.5">
                 <SettingsPopover />
                 <DesktopAppLink />
                 <WindowControls />
               </div>
             </div>
           </header>
-          <main className="mx-auto max-w-5xl px-6 py-10">
+          <main className="mx-auto max-w-5xl px-6 py-8">
             <SimTypeCards />
             <SimSharedConfig />
             {children}
           </main>
         </SimProvider>
-        <footer className="mt-16 border-t border-border/50 py-6">
-          <p className="mx-auto max-w-lg text-center text-[11px] leading-relaxed text-gray-500">
+        <footer className="mt-20 border-t border-border/40 py-8">
+          <p className="mx-auto max-w-md text-center text-[11px] leading-relaxed text-zinc-600">
             SimHammer is a pet project held together by coffee, duct tape, and prayers to the RNG
             gods. Bugs are not features — but they might sim higher than your gear. Use at your own
             risk. Not affiliated with Blizzard, Raidbots, or anyone who knows what they&apos;re
             doing.
           </p>
-          <p className="mt-2 text-center text-[11px] text-gray-600">v{packageJson.version}</p>
+          <p className="mt-3 text-center text-[10px] text-zinc-700">v{packageJson.version}</p>
         </footer>
       </body>
     </html>

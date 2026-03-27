@@ -119,20 +119,34 @@ function AdvancedOptions() {
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center justify-between px-5 py-3 transition-colors hover:bg-white/[0.02]"
+        className="flex w-full items-center justify-between px-5 py-3.5 transition-colors hover:bg-white/[0.02]"
       >
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-gray-300">Advanced Options</span>
+        <div className="flex items-center gap-2.5">
+          <svg
+            className="h-4 w-4 text-zinc-500"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="8" cy="8" r="2" />
+            <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" />
+          </svg>
+          <span className="text-sm font-medium text-zinc-300">Advanced Options</span>
           {!open && !isDefault && (
-            <span className="rounded bg-gold/10 px-1.5 py-0.5 text-[11px] text-gold">Modified</span>
+            <span className="rounded-md bg-gold/10 px-1.5 py-0.5 text-[10px] font-medium text-gold">
+              Modified
+            </span>
           )}
         </div>
         <svg
-          className={`h-4 w-4 text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`}
+          className={`h-3.5 w-3.5 text-zinc-600 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
           viewBox="0 0 16 16"
           fill="none"
           stroke="currentColor"
-          strokeWidth="1.5"
+          strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
         >
@@ -140,9 +154,9 @@ function AdvancedOptions() {
         </svg>
       </button>
       {open && (
-        <div className="space-y-4 border-t border-border px-5 pb-5">
+        <div className="animate-fade-in space-y-5 border-t border-border px-5 pb-5">
           <div className="pt-4">
-            <label className="label-text mb-2 block">Fight Style</label>
+            <label className="label-text">Fight Style</label>
             <FightStyleSelector value={fightStyle} onChange={setFightStyle} />
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -192,7 +206,7 @@ function AdvancedOptions() {
               placeholder="Custom APL or expansion options (e.g., actions=..., midnight.*, use_blizzard_action_list=1)..."
               className="input-field h-28 resize-y font-mono text-xs"
             />
-            <p className="text-[11px] text-gray-600">
+            <p className="text-[11px] text-zinc-600">
               Override action priority lists or set expansion-specific options. Injected after the
               base actor.
             </p>
@@ -231,8 +245,8 @@ function ExpertToggle({
   const [open, setOpen] = useState(hasContent);
 
   return (
-    <div className="space-y-3 border-t border-border pt-2">
-      <button type="button" onClick={() => setOpen(!open)} className="flex items-center gap-2">
+    <div className="space-y-3 border-t border-border/60 pt-3">
+      <button type="button" onClick={() => setOpen(!open)} className="flex items-center gap-2.5">
         <div
           className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
             open ? 'bg-gold' : 'border border-border bg-surface-2'
@@ -244,9 +258,11 @@ function ExpertToggle({
             }`}
           />
         </div>
-        <span className="text-sm font-medium text-gray-300">Expert Mode</span>
+        <span className="text-sm font-medium text-zinc-300">Expert Mode</span>
         {!open && hasContent && (
-          <span className="rounded bg-gold/10 px-1.5 py-0.5 text-[11px] text-gold">Modified</span>
+          <span className="rounded-md bg-gold/10 px-1.5 py-0.5 text-[10px] font-medium text-gold">
+            Modified
+          </span>
         )}
       </button>
       {open && (
@@ -256,12 +272,12 @@ function ExpertToggle({
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className={`whitespace-nowrap rounded-lg border px-3 py-1.5 text-[12px] font-medium transition-all ${
+                className={`whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs font-medium transition-all duration-150 ${
                   activeTab === tab.key
-                    ? 'border-white bg-white text-black'
+                    ? 'border-zinc-500 bg-zinc-800 text-white'
                     : expertValues[tab.key].trim()
-                      ? 'border-gold/30 bg-gold/10 text-gold hover:border-gold/50'
-                      : 'border-border bg-surface-2 text-gray-400 hover:border-gray-500 hover:text-white'
+                      ? 'border-gold/30 bg-gold/[0.06] text-gold hover:border-gold/50'
+                      : 'border-border bg-surface-2 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
                 }`}
               >
                 {tab.label}
@@ -277,7 +293,7 @@ function ExpertToggle({
             placeholder={`Paste ${activeTabInfo.label.toLowerCase()} SimC input here...`}
             className="input-field h-32 resize-y font-mono text-xs"
           />
-          <p className="text-[11px] text-gray-600">{activeTabInfo.desc}</p>
+          <p className="text-[11px] text-zinc-600">{activeTabInfo.desc}</p>
         </div>
       )}
     </div>
@@ -295,20 +311,26 @@ export default function SimSharedConfig() {
   const detectedInfo = parseCharacterInfo(simcInput);
 
   return (
-    <div className="mb-6 space-y-6">
+    <div className="mb-6 space-y-4">
       <div className="card space-y-3 p-5">
         <label className="label-text">SimC Addon Export</label>
         <textarea
           value={simcInput}
           onChange={(e) => setSimcInput(e.target.value)}
           placeholder="Paste your SimC addon export here..."
-          className="input-field h-44 resize-y font-mono text-xs"
+          className="input-field h-40 resize-y font-mono text-[11px] leading-relaxed"
         />
         {detectedInfo && (
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-gold">
-              {detectedInfo.name} &middot; {detectedInfo.spec} {detectedInfo.className}
-            </p>
+          <div className="flex items-center justify-between rounded-lg bg-surface-2 px-3.5 py-2">
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-2 rounded-full bg-gold/70" />
+              <p className="text-xs font-medium text-zinc-300">
+                {detectedInfo.name}
+                <span className="ml-1.5 font-normal text-zinc-500">
+                  {detectedInfo.spec} {detectedInfo.className}
+                </span>
+              </p>
+            </div>
             <TalentPicker />
           </div>
         )}

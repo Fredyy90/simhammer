@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import DpsHeroCard from './DpsHeroCard';
 
 interface Ability {
   name: string;
@@ -12,10 +13,15 @@ interface Ability {
 interface ResultsChartProps {
   dps: number;
   dpsError: number;
+  dpsErrorPct?: number;
   fightLength: number;
   playerName: string;
   playerClass: string;
   abilities: Ability[];
+  desiredTargets?: number;
+  iterations?: number;
+  targetError?: number;
+  elapsedTime?: number;
 }
 
 const iconCache = new Map<number, string>();
@@ -80,10 +86,15 @@ const SCHOOL_COLORS: Record<string, string> = {
 export default function ResultsChart({
   dps,
   dpsError,
+  dpsErrorPct,
   fightLength,
   playerName,
   playerClass,
   abilities,
+  desiredTargets,
+  iterations,
+  targetError,
+  elapsedTime,
 }: ResultsChartProps) {
   const totalDps = dps || abilities.reduce((s, a) => s + a.portion_dps, 0);
   const top = abilities.slice(0, 15);
@@ -93,20 +104,18 @@ export default function ResultsChart({
 
   return (
     <div className="space-y-6">
-      <div className="card p-8 text-center">
-        <p className="mb-4 text-xs text-muted">
-          {playerName} &middot; {playerClass}
-        </p>
-        <p className="text-5xl font-bold tabular-nums tracking-tight text-white">
-          {Math.round(dps).toLocaleString()}
-        </p>
-        <p className="mt-2 text-xs uppercase tracking-widest text-muted">DPS</p>
-        <div className="mt-3 flex items-center justify-center gap-4 text-xs text-gray-600">
-          <span>&plusmn; {Math.round(dpsError).toLocaleString()}</span>
-          <span className="h-3 w-px bg-border" />
-          <span>{fightLength}s fight</span>
-        </div>
-      </div>
+      <DpsHeroCard
+        playerName={playerName}
+        playerClass={playerClass}
+        dps={dps}
+        dpsError={dpsError}
+        dpsErrorPct={dpsErrorPct}
+        fightLength={fightLength}
+        desiredTargets={desiredTargets}
+        iterations={iterations}
+        targetError={targetError}
+        elapsedTime={elapsedTime}
+      />
 
       <div className="card p-5">
         <h3 className="mb-4 text-xs font-medium uppercase tracking-widest text-muted">

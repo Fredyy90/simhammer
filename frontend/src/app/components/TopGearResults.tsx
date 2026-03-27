@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import DpsHeroCard from './DpsHeroCard';
 import {
   useItemInfo,
   useEnchantInfo,
@@ -40,6 +41,13 @@ interface TopGearResultsProps {
   baseDps: number;
   results: TopGearResult[];
   equippedGear?: Record<string, ResultItem>;
+  dpsError?: number;
+  dpsErrorPct?: number;
+  fightLength?: number;
+  desiredTargets?: number;
+  iterations?: number;
+  targetError?: number;
+  elapsedTime?: number;
 }
 
 // WoW character sheet order: left column, right column, then weapons
@@ -63,6 +71,13 @@ export default function TopGearResults({
   baseDps,
   results,
   equippedGear,
+  dpsError,
+  dpsErrorPct,
+  fightLength,
+  desiredTargets,
+  iterations,
+  targetError,
+  elapsedTime,
 }: TopGearResultsProps) {
   const maxDps = results.length > 0 ? results[0].dps : baseDps;
   const bestResult = results.length > 0 ? results[0] : null;
@@ -169,34 +184,29 @@ export default function TopGearResults({
 
   return (
     <div className="space-y-6">
-      {/* Hero */}
-      <div className="card p-8 text-center">
-        <p className="mb-4 text-xs text-muted">
-          {playerName} &middot; {playerClass}
-        </p>
+      <DpsHeroCard
+        playerName={playerName}
+        playerClass={playerClass}
+        dps={bestResult && bestResult.delta > 0 ? bestResult.dps : baseDps}
+        dpsError={dpsError}
+        dpsErrorPct={dpsErrorPct}
+        fightLength={fightLength}
+        desiredTargets={desiredTargets}
+        iterations={iterations}
+        targetError={targetError}
+        elapsedTime={elapsedTime}
+      >
         {bestResult && bestResult.delta > 0 ? (
-          <>
-            <p className="text-5xl font-bold tabular-nums tracking-tight text-white">
-              {Math.round(bestResult.dps).toLocaleString()}
-            </p>
-            <p className="mt-2 text-xs uppercase tracking-widest text-muted">DPS</p>
-            <div className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-3 py-1.5 text-emerald-400">
-              <span className="text-sm font-semibold tabular-nums">
-                +{Math.round(bestResult.delta).toLocaleString()}
-              </span>
-              <span className="text-xs opacity-60">upgrade</span>
-            </div>
-          </>
+          <div className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-3 py-1.5 text-emerald-400">
+            <span className="text-sm font-semibold tabular-nums">
+              +{Math.round(bestResult.delta).toLocaleString()}
+            </span>
+            <span className="text-xs opacity-60">upgrade</span>
+          </div>
         ) : (
-          <>
-            <p className="text-5xl font-bold tabular-nums tracking-tight text-white">
-              {Math.round(baseDps).toLocaleString()}
-            </p>
-            <p className="mt-2 text-xs uppercase tracking-widest text-muted">DPS</p>
-            <p className="mt-4 text-sm text-muted">Current gear is already optimal.</p>
-          </>
+          <p className="mt-4 text-sm text-zinc-500">Current gear is already optimal.</p>
         )}
-      </div>
+      </DpsHeroCard>
 
       {/* Gear Overview */}
       {hasGearOverview && (

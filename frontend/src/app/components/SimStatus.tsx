@@ -165,24 +165,29 @@ export default function SimStatus({
 
   return (
     <div className="flex flex-col items-center justify-center space-y-6 py-16">
-      <div className="h-10 w-10 animate-spin rounded-full border-2 border-border border-t-gold" />
+      <div className="relative">
+        <div className="h-12 w-12 animate-spin rounded-full border-2 border-zinc-800 border-t-gold" />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="h-2 w-2 animate-pulse rounded-full bg-gold/60" />
+        </div>
+      </div>
 
       <div className="text-center">
-        <p className="text-sm font-medium text-white">{title}</p>
-        {progressDetail && <p className="mt-1 text-[11px] text-gray-400">{progressDetail}</p>}
+        <p className="text-sm font-semibold text-zinc-100">{title}</p>
+        {progressDetail && <p className="mt-1 text-[11px] text-zinc-500">{progressDetail}</p>}
       </div>
 
       <div className="w-72">
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface">
+        <div className="h-1 w-full overflow-hidden rounded-full bg-zinc-800">
           <div
-            className="h-full rounded-full bg-gold transition-all duration-700"
+            className="h-full rounded-full bg-gradient-to-r from-gold-dark to-gold transition-all duration-700"
             style={{ width: `${Math.max(displayProgress, status === 'pending' ? 2 : 5)}%` }}
           />
         </div>
         <div className="mt-2 flex items-center justify-between">
-          <p className="font-mono text-[11px] tabular-nums text-gray-400">{displayProgress}%</p>
+          <p className="font-mono text-[10px] tabular-nums text-zinc-500">{displayProgress}%</p>
           {cpuUsage !== null && (
-            <p className="font-mono text-[11px] tabular-nums text-gray-400">
+            <p className="font-mono text-[10px] tabular-nums text-zinc-500">
               CPU {Math.round(cpuUsage)}%
             </p>
           )}
@@ -221,8 +226,6 @@ export default function SimStatus({
         </div>
       )}
 
-      {showLogs && logLines && logLines.length > 0 && <LogConsole lines={logLines} />}
-
       {hasStages && (
         <div className="w-72 space-y-1 pt-2">
           {stagesCompleted!.map((stage, i) => (
@@ -254,6 +257,8 @@ export default function SimStatus({
           )}
         </div>
       )}
+
+      {showLogs && logLines && logLines.length > 0 && <LogConsole lines={logLines} />}
     </div>
   );
 }

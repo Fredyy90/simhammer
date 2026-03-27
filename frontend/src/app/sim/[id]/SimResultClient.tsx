@@ -14,56 +14,6 @@ import {
   type ScenarioSibling,
 } from '../../lib/scenario-siblings';
 
-function SimMetadata({ result: r }: { result: Record<string, unknown> }) {
-  return (
-    <div className="card p-4">
-      <div className="grid grid-cols-2 gap-4 text-center sm:grid-cols-4">
-        {typeof r.dps_error === 'number' && (
-          <div>
-            <p className="mb-1 text-[11px] uppercase tracking-wider text-muted">Margin of Error</p>
-            <p className="text-sm font-medium text-white">
-              ~{Math.round(r.dps_error as number)} DPS
-              {typeof r.dps_error_pct === 'number' && (
-                <span className="ml-1 text-muted">({r.dps_error_pct as number}%)</span>
-              )}
-            </p>
-          </div>
-        )}
-        {typeof r.iterations === 'number' && (r.iterations as number) > 0 && (
-          <div>
-            <p className="mb-1 text-[11px] uppercase tracking-wider text-muted">Iterations</p>
-            <p className="text-sm font-medium text-white">
-              {(r.iterations as number).toLocaleString()}
-              {typeof r.target_error === 'number' && (r.target_error as number) > 0 && (
-                <span className="ml-1 text-muted">(Smart Sim)</span>
-              )}
-            </p>
-          </div>
-        )}
-        {typeof r.elapsed_time_seconds === 'number' && (
-          <div>
-            <p className="mb-1 text-[11px] uppercase tracking-wider text-muted">Processing Time</p>
-            <p className="text-sm font-medium text-white">
-              {(r.elapsed_time_seconds as number) >= 60
-                ? `${Math.floor((r.elapsed_time_seconds as number) / 60)}:${String(Math.round((r.elapsed_time_seconds as number) % 60)).padStart(2, '0')}`
-                : `${(r.elapsed_time_seconds as number).toFixed(1)}s`}
-            </p>
-          </div>
-        )}
-        {typeof r.fight_length === 'number' && (
-          <div>
-            <p className="mb-1 text-[11px] uppercase tracking-wider text-muted">Fight Length</p>
-            <p className="text-sm font-medium text-white">
-              {Math.floor((r.fight_length as number) / 60)}:
-              {String(Math.round((r.fight_length as number) % 60)).padStart(2, '0')}
-            </p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 interface JobData {
   id: string;
   status: string;
@@ -157,9 +107,9 @@ export default function SimResultClient() {
 
   if (fetchError) {
     return (
-      <div className="card border-red-500/20 p-6">
-        <p className="mb-1 text-sm font-medium text-red-400">Error</p>
-        <p className="text-sm text-red-400/70">{fetchError}</p>
+      <div className="card border-red-500/20 bg-red-500/[0.03] p-6">
+        <p className="mb-1 text-sm font-semibold text-red-400">Error</p>
+        <p className="text-sm text-red-400/60">{fetchError}</p>
       </div>
     );
   }
@@ -167,24 +117,24 @@ export default function SimResultClient() {
   if (!job) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-gold" />
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-zinc-800 border-t-gold" />
       </div>
     );
   }
 
   if (job.status === 'cancelled') {
     return (
-      <div className="card border-amber-500/20 p-6 text-center">
-        <p className="text-sm font-medium text-amber-400">Simulation Cancelled</p>
+      <div className="card border-amber-500/20 bg-amber-500/[0.03] p-6 text-center">
+        <p className="text-sm font-semibold text-amber-400">Simulation Cancelled</p>
       </div>
     );
   }
 
   if (job.status === 'failed') {
     return (
-      <div className="card border-red-500/20 p-6">
-        <p className="mb-2 text-sm font-medium text-red-400">Simulation Failed</p>
-        <p className="whitespace-pre-wrap font-mono text-xs text-red-400/60">
+      <div className="card border-red-500/20 bg-red-500/[0.03] p-6">
+        <p className="mb-2 text-sm font-semibold text-red-400">Simulation Failed</p>
+        <p className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-red-400/60">
           {job.error || 'Unknown error'}
         </p>
       </div>
@@ -282,14 +232,21 @@ export default function SimResultClient() {
                 }
               >
             }
+            dpsError={r.dps_error as number | undefined}
+            dpsErrorPct={r.dps_error_pct as number | undefined}
+            fightLength={r.fight_length as number | undefined}
+            desiredTargets={r.desired_targets as number | undefined}
+            iterations={r.iterations as number | undefined}
+            targetError={r.target_error as number | undefined}
+            elapsedTime={r.elapsed_time_seconds as number | undefined}
           />
-          <SimMetadata result={r} />
         </>
       ) : (
         <>
           <ResultsChart
             dps={r.dps as number}
             dpsError={r.dps_error as number}
+            dpsErrorPct={r.dps_error_pct as number | undefined}
             fightLength={r.fight_length as number}
             playerName={r.player_name as string}
             playerClass={r.player_class as string}
@@ -300,8 +257,11 @@ export default function SimResultClient() {
                 school: string;
               }>) || []
             }
+            desiredTargets={r.desired_targets as number | undefined}
+            iterations={r.iterations as number | undefined}
+            targetError={r.target_error as number | undefined}
+            elapsedTime={r.elapsed_time_seconds as number | undefined}
           />
-          <SimMetadata result={r} />
           {r.stat_weights && (
             <StatWeightsTable statWeights={r.stat_weights as Record<string, number>} />
           )}

@@ -9,25 +9,28 @@
     @apply bg-bg text-gray-200 antialiased;
   }
   ::selection {
-    @apply bg-gold/20 text-white;
+    @apply bg-gold/25 text-white;
   }
 }
 
 @layer components {
   .card {
-    @apply rounded-xl border border-border bg-surface;
+    @apply rounded-xl border border-border bg-surface shadow-card transition-[border-color,box-shadow] duration-200;
+  }
+  .card-interactive {
+    @apply card cursor-pointer hover:border-border-light hover:shadow-card-hover;
   }
   .btn-primary {
-    @apply rounded-lg bg-gold px-5 py-2.5 font-semibold text-black transition-all duration-150 hover:bg-gold-light active:scale-[0.98] disabled:pointer-events-none disabled:bg-border disabled:text-muted;
+    @apply relative rounded-lg bg-gold px-5 py-2.5 font-semibold text-black shadow-sm transition-all duration-150 hover:bg-gold-light hover:shadow-md active:scale-[0.98] disabled:pointer-events-none disabled:bg-zinc-800 disabled:text-zinc-500 disabled:shadow-none;
   }
   .btn-outline {
-    @apply rounded-lg border border-border bg-transparent px-5 py-2.5 text-gray-300 transition-all duration-150 hover:border-gray-500 hover:text-white active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40;
+    @apply rounded-lg border border-border bg-transparent px-5 py-2.5 text-gray-300 transition-all duration-150 hover:border-zinc-500 hover:bg-white/[0.03] hover:text-white active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40;
   }
   .input-field {
-    @apply w-full rounded-lg border border-border bg-surface-2 px-3.5 py-2.5 text-sm text-gray-100 placeholder-gray-500 transition-all focus:border-gray-500 focus:outline-none focus:ring-2 focus:ring-white/5;
+    @apply w-full rounded-lg border border-border bg-surface-2 px-3.5 py-2.5 text-sm text-gray-100 placeholder-zinc-600 shadow-sm transition-all duration-150 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500/20;
   }
   .label-text {
-    @apply mb-2 block text-[13px] font-medium text-gray-400;
+    @apply mb-1.5 block text-xs font-medium uppercase tracking-wider text-zinc-500;
   }
 }
 
@@ -58,11 +61,11 @@ html[data-desktop] .desktop-no-drag {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2a2a2e;
+  background: #27272a;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #404044;
+  background: #3f3f46;
 }
 
 /* Select dropdown arrow */
@@ -80,37 +83,39 @@ input[type='range'] {
   @apply h-8 w-full cursor-pointer appearance-none bg-transparent;
 }
 input[type='range']::-webkit-slider-runnable-track {
-  @apply h-1.5 rounded-full bg-border-light;
+  @apply h-1 rounded-full bg-zinc-700;
 }
 input[type='range']::-moz-range-track {
-  @apply h-1.5 rounded-full border-0 bg-border-light;
+  @apply h-1 rounded-full border-0 bg-zinc-700;
 }
 
 /* Range slider - thumb */
 input[type='range']::-webkit-slider-thumb {
   -webkit-appearance: none;
-  @apply -mt-[5px] h-4 w-4 cursor-grab rounded-full border-[3px] border-surface bg-gold shadow-[0_0_0_2px_rgba(212,168,67,0.3)];
+  @apply -mt-[6px] h-3.5 w-3.5 cursor-grab rounded-full border-2 border-bg bg-gold shadow-[0_0_0_2px_rgba(212,168,67,0.25)];
   transition:
     box-shadow 0.15s,
-    background-color 0.15s;
+    background-color 0.15s,
+    transform 0.15s;
 }
 input[type='range']::-moz-range-thumb {
-  @apply h-4 w-4 cursor-grab rounded-full border-[3px] border-surface bg-gold shadow-[0_0_0_2px_rgba(212,168,67,0.3)];
+  @apply h-3.5 w-3.5 cursor-grab rounded-full border-2 border-bg bg-gold shadow-[0_0_0_2px_rgba(212,168,67,0.25)];
   transition:
     box-shadow 0.15s,
-    background-color 0.15s;
+    background-color 0.15s,
+    transform 0.15s;
 }
 input[type='range']::-webkit-slider-thumb:hover {
-  @apply bg-gold-light shadow-[0_0_0_4px_rgba(212,168,67,0.2)];
+  @apply scale-110 bg-gold-light shadow-[0_0_0_3px_rgba(212,168,67,0.2)];
 }
 input[type='range']::-moz-range-thumb:hover {
-  @apply bg-gold-light shadow-[0_0_0_4px_rgba(212,168,67,0.2)];
+  @apply scale-110 bg-gold-light shadow-[0_0_0_3px_rgba(212,168,67,0.2)];
 }
 input[type='range']:active::-webkit-slider-thumb {
-  @apply cursor-grabbing shadow-[0_0_0_5px_rgba(212,168,67,0.25)];
+  @apply cursor-grabbing shadow-[0_0_0_4px_rgba(212,168,67,0.2)];
 }
 input[type='range']:active::-moz-range-thumb {
-  @apply cursor-grabbing shadow-[0_0_0_5px_rgba(212,168,67,0.25)];
+  @apply cursor-grabbing shadow-[0_0_0_4px_rgba(212,168,67,0.2)];
 }
 input[type='range']:focus-visible {
   @apply outline-none;
