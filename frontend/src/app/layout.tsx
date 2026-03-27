@@ -26,9 +26,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
         <Script
           id="wowhead-config"
-          strategy="beforeInteractive"
+          strategy="afterInteractive"
         >{`const whTooltips = { colorLinks: false, iconizeLinks: false, renameLinks: false };`}</Script>
-        <Script src="https://wow.zamimg.com/js/tooltips.js" strategy="beforeInteractive" />
+        <Script src="https://wow.zamimg.com/js/tooltips.js" strategy="afterInteractive" />
       </head>
       <body className="min-h-screen">
         <UpdateChecker />

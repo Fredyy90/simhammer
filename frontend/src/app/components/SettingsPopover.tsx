@@ -34,7 +34,7 @@ export default function SettingsPopover() {
         }
       })
       .catch(() => {});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps — threads is intentionally captured once
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- threads is intentionally captured once
 
   useEffect(() => {
     if (!open) return;
