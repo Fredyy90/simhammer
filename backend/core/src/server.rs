@@ -1,6 +1,6 @@
 use actix_cors::Cors;
 use actix_files::NamedFile;
-use actix_web::{web, App, HttpServer, HttpResponse, HttpRequest};
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -9,19 +9,21 @@ use std::sync::Arc;
 #[cfg(feature = "desktop")]
 use std::sync::Mutex;
 
+use crate::addon_parser;
 use crate::game_data;
+use crate::gear_resolver;
+use crate::log_buffer::LogBuffer;
 use crate::models::{Job, JobStatus};
-use crate::storage::JobStorage;
 use crate::profileset_generator;
 use crate::result_parser;
 use crate::simc_runner;
-use crate::addon_parser;
-use crate::gear_resolver;
+use crate::storage::{self, JobStorage};
 use crate::types::ResolveGearResponse;
 
 /// Newtype wrapper to avoid colliding with the simc `web::Data<PathBuf>`.
 #[derive(Clone)]
 struct FrontendDir(PathBuf);
+
 
 #[cfg(feature = "desktop")]
 /// Shared system info state, refreshed in background for live CPU readings.
@@ -72,6 +74,9 @@ pub struct SimOptions {
     /// Custom APL and SimC expansion options (e.g., actions=..., midnight.*, use_blizzard_action_list).
     #[serde(default)]
     pub custom_apl: String,
+    // Batch grouping
+    #[serde(default)]
+    pub batch_id: Option<String>,
     // Expert Mode injection points
     #[serde(default)]
     pub simc_header: String,
@@ -87,7 +92,9 @@ pub struct SimOptions {
 
 impl SimOptions {
     fn has_raid_actors(&self) -> bool {
-        !sanitize_custom_simc(&self.simc_raid_actors).trim().is_empty()
+        !sanitize_custom_simc(&self.simc_raid_actors)
+            .trim()
+            .is_empty()
     }
 
     fn to_json(&self) -> Value {
@@ -143,6 +150,16 @@ pub struct DroptimizerRequest {
     pub options: SimOptions,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpgradeCompareRequest {
+    pub simc_input: String,
+    pub selected_slots: Vec<String>,
+    #[serde(default)]
+    pub max_combinations: Option<usize>,
+    #[serde(flatten)]
+    pub options: SimOptions,
+}
+
 #[derive(Debug, Serialize)]
 pub struct SimResponse {
     pub id: String,
@@ -171,12 +188,24 @@ pub struct ResolveGearRequest {
     pub max_upgrade: bool,
 }
 
-fn default_iterations() -> u32 { 1000 }
-fn default_fight_style() -> String { "Patchwerk".to_string() }
-fn default_target_error() -> f64 { 0.05 }
-fn default_sim_type() -> String { "quick".to_string() }
-fn default_desired_targets() -> u32 { 1 }
-fn default_max_time() -> u32 { 300 }
+fn default_iterations() -> u32 {
+    1000
+}
+fn default_fight_style() -> String {
+    "Patchwerk".to_string()
+}
+fn default_target_error() -> f64 {
+    0.05
+}
+fn default_sim_type() -> String {
+    "quick".to_string()
+}
+fn default_desired_targets() -> u32 {
+    1
+}
+fn default_max_time() -> u32 {
+    300
+}
 
 /// Sanitize user-provided custom SimC input by stripping dangerous directives.
 fn sanitize_custom_simc(input: &str) -> String {
@@ -382,7 +411,8 @@ fn apply_talent_override(simc_input: &str, talents: &str) -> String {
     }
     let re = regex::Regex::new(r"(?m)^talents=.+$").unwrap();
     if re.is_match(simc_input) {
-        re.replace(simc_input, format!("talents={}", talents)).to_string()
+        re.replace(simc_input, format!("talents={}", talents))
+            .to_string()
     } else {
         format!("{}\ntalents={}", simc_input, talents)
     }
@@ -406,6 +436,7 @@ fn spawn_staged_sim(
     job_id: String,
     simc_input: String,
     combo_count: usize,
+    log_buffer: Arc<LogBuffer>,
 ) {
     tokio::spawn(async move {
         store.update_status(&job_id, JobStatus::Running);
@@ -413,6 +444,8 @@ fn spawn_staged_sim(
         let store_stages = store.clone();
         let jid_progress = job_id.clone();
         let jid_stages = job_id.clone();
+        let logs = log_buffer.clone();
+        let jid_logs = job_id.clone();
         match simc_runner::run_simc_staged(
             &simc,
             &job_id,
@@ -424,6 +457,9 @@ fn spawn_staged_sim(
             },
             move |summary| {
                 store_stages.complete_stage(&jid_stages, summary);
+            },
+            move |line| {
+                logs.push_line(&jid_logs, line.to_string());
             },
         )
         .await
@@ -446,7 +482,8 @@ fn spawn_staged_sim(
             }
             Err(e) => {
                 // Don't overwrite cancelled status with a generic error
-                let is_cancelled = store.get(&job_id)
+                let is_cancelled = store
+                    .get(&job_id)
                     .map(|j| j.status == JobStatus::Cancelled)
                     .unwrap_or(false);
                 if !is_cancelled {
@@ -454,7 +491,28 @@ fn spawn_staged_sim(
                 }
             }
         }
+        log_buffer.remove(&job_id);
     });
+}
+
+/// Validate batch_id against MAX_SCENARIOS. Returns an error response if rejected.
+fn validate_batch(batch_id: &Option<String>, store: &dyn JobStorage) -> Option<HttpResponse> {
+    let bid = match batch_id {
+        Some(b) if !b.is_empty() => b,
+        _ => return None,
+    };
+    let max = *storage::MAX_SCENARIOS;
+    if max == 0 {
+        return Some(HttpResponse::BadRequest().json(json!({
+            "detail": "Batch scenarios are disabled on this server."
+        })));
+    }
+    if store.count_batch(bid) >= max {
+        return Some(HttpResponse::BadRequest().json(json!({
+            "detail": format!("Batch limit reached ({max} scenarios max).")
+        })));
+    }
+    None
 }
 
 // ---------- Handlers ----------
@@ -463,6 +521,7 @@ async fn create_sim(
     req: web::Json<SimRequest>,
     store: web::Data<Arc<dyn JobStorage>>,
     simc_path: web::Data<PathBuf>,
+    log_buffer: web::Data<Arc<LogBuffer>>,
 ) -> HttpResponse {
     let mut simc_input = if req.max_upgrade {
         game_data::upgrade_simc_input(&req.simc_input)
@@ -472,13 +531,18 @@ async fn create_sim(
     simc_input = apply_talent_override(&simc_input, &req.options.talents);
     simc_input = inject_expert_fields(&simc_input, &req.options);
 
-    let job = Job::new(
+    if let Some(resp) = validate_batch(&req.options.batch_id, store.get_ref().as_ref()) {
+        return resp;
+    }
+
+    let mut job = Job::new(
         simc_input.clone(),
         req.sim_type.clone(),
         req.options.iterations,
         req.options.fight_style.clone(),
         req.options.target_error,
     );
+    job.batch_id = req.options.batch_id.clone();
     let job_id = job.id.clone();
     let created_at = job.created_at.clone();
     store.insert(job);
@@ -488,11 +552,19 @@ async fn create_sim(
     let simc = simc_path.get_ref().clone();
     let options = req.options.to_json_with_sim_type(&req.sim_type);
     let job_id_clone = job_id.clone();
+    let logs = log_buffer.get_ref().clone();
+    let jid_logs = job_id.clone();
 
     tokio::spawn(async move {
         store_clone.update_status(&job_id_clone, JobStatus::Running);
         store_clone.update_progress(&job_id_clone, 20, "Simulating", "");
-        match simc_runner::run_simc(&simc, &job_id_clone, &simc_input, &options).await {
+        let logs_cb = logs.clone();
+        let jid_cb = jid_logs.clone();
+        match simc_runner::run_simc(&simc, &job_id_clone, &simc_input, &options, move |line| {
+            logs_cb.push_line(&jid_cb, line.to_string());
+        })
+        .await
+        {
             Ok(output) => {
                 let mut parsed = result_parser::parse_simc_result(&output.json);
                 inject_realm(&mut parsed, &simc_input);
@@ -502,7 +574,8 @@ async fn create_sim(
                 store_clone.set_report_files(&job_id_clone, output.html_report, output.text_output);
             }
             Err(e) => {
-                let is_cancelled = store_clone.get(&job_id_clone)
+                let is_cancelled = store_clone
+                    .get(&job_id_clone)
                     .map(|j| j.status == JobStatus::Cancelled)
                     .unwrap_or(false);
                 if !is_cancelled {
@@ -510,6 +583,7 @@ async fn create_sim(
                 }
             }
         }
+        logs.remove(&jid_logs);
     });
 
     HttpResponse::Ok().json(SimResponse {
@@ -523,6 +597,7 @@ async fn create_top_gear_sim(
     req: web::Json<TopGearRequest>,
     store: web::Data<Arc<dyn JobStorage>>,
     simc_path: web::Data<PathBuf>,
+    log_buffer: web::Data<Arc<LogBuffer>>,
 ) -> HttpResponse {
     let mut simc_input = if req.max_upgrade {
         game_data::upgrade_simc_input(&req.simc_input)
@@ -570,6 +645,10 @@ async fn create_top_gear_sim(
 
     let generated_input = inject_expert_fields(&generated_input, &req.options);
 
+    if let Some(resp) = validate_batch(&req.options.batch_id, store.get_ref().as_ref()) {
+        return resp;
+    }
+
     let job = Job::new(
         generated_input.clone(),
         "top_gear".to_string(),
@@ -589,6 +668,7 @@ async fn create_top_gear_sim(
 
     let mut job = job;
     job.combo_metadata_json = Some(meta_json);
+    job.batch_id = req.options.batch_id.clone();
     store.insert(job);
 
     spawn_staged_sim(
@@ -598,6 +678,7 @@ async fn create_top_gear_sim(
         job_id.clone(),
         generated_input,
         combo_count,
+        log_buffer.get_ref().clone(),
     );
 
     HttpResponse::Ok().json(SimResponse {
@@ -607,9 +688,7 @@ async fn create_top_gear_sim(
     })
 }
 
-async fn get_top_gear_combo_count(
-    req: web::Json<TopGearRequest>,
-) -> HttpResponse {
+async fn get_top_gear_combo_count(req: web::Json<TopGearRequest>) -> HttpResponse {
     let mut simc_input = if req.max_upgrade {
         game_data::upgrade_simc_input(&req.simc_input)
     } else {
@@ -621,7 +700,11 @@ async fn get_top_gear_combo_count(
     let resolved = gear_resolver::resolve_gear(&parse_result);
     let base_profile = resolved.base_profile.clone();
 
-    let mut items_by_slot = resolve_to_items_by_slot(&resolved);
+    let mut items_by_slot: HashMap<String, Vec<Value>> = if let Some(ref ibs) = req.items_by_slot {
+        ibs.clone()
+    } else {
+        resolve_to_items_by_slot(&resolved)
+    };
 
     if req.max_upgrade {
         items_by_slot = game_data::upgrade_items_by_slot(&items_by_slot);
@@ -639,7 +722,8 @@ async fn get_top_gear_combo_count(
         Ok(count) => HttpResponse::Ok().json(json!({ "combo_count": count })),
         Err(e) => {
             // Extract the count from the error message so the frontend can still display it
-            let count: usize = e.split('(')
+            let count: usize = e
+                .split('(')
                 .nth(1)
                 .and_then(|s| s.split(')').next())
                 .and_then(|s| s.parse().ok())
@@ -653,6 +737,7 @@ async fn create_droptimizer_sim(
     req: web::Json<DroptimizerRequest>,
     store: web::Data<Arc<dyn JobStorage>>,
     simc_path: web::Data<PathBuf>,
+    log_buffer: web::Data<Arc<LogBuffer>>,
 ) -> HttpResponse {
     let simc_input = apply_talent_override(&req.simc_input, &req.options.talents);
     let parse_result = addon_parser::parse_simc_input(&simc_input);
@@ -668,6 +753,10 @@ async fn create_droptimizer_sim(
     }
 
     let generated_input = inject_expert_fields(&generated_input, &req.options);
+
+    if let Some(resp) = validate_batch(&req.options.batch_id, store.get_ref().as_ref()) {
+        return resp;
+    }
 
     let job = Job::new(
         generated_input.clone(),
@@ -687,6 +776,7 @@ async fn create_droptimizer_sim(
 
     let mut job = job;
     job.combo_metadata_json = Some(meta_json);
+    job.batch_id = req.options.batch_id.clone();
     store.insert(job);
 
     spawn_staged_sim(
@@ -696,6 +786,7 @@ async fn create_droptimizer_sim(
         job_id.clone(),
         generated_input,
         combo_count,
+        log_buffer.get_ref().clone(),
     );
 
     HttpResponse::Ok().json(SimResponse {
@@ -703,6 +794,442 @@ async fn create_droptimizer_sim(
         status: "pending".to_string(),
         created_at,
     })
+}
+
+// ---- Upgrade Compare ----
+
+/// Shared prep: parse SimC input, extract upgrade budget, build upgrade options per slot.
+struct PreparedUpgradeCompare {
+    base_profile: String,
+    upgraded_options_by_slot: HashMap<String, Vec<Value>>,
+    upgrade_budget: HashMap<u64, u64>,
+}
+
+fn prepare_upgrade_compare(
+    simc_input: &str,
+    selected_slots: &[String],
+) -> Result<PreparedUpgradeCompare, HttpResponse> {
+    let upgrade_budget = addon_parser::parse_upgrade_currencies(simc_input);
+    if upgrade_budget.is_empty() {
+        return Err(HttpResponse::BadRequest().json(json!({
+            "detail": "No upgrade_currencies found in SimC addon export."
+        })));
+    }
+
+    let upgrade_currency_ids: std::collections::HashSet<u64> =
+        upgrade_budget.keys().copied().collect();
+
+    let parse_result = addon_parser::parse_simc_input(simc_input);
+    let resolved = gear_resolver::resolve_gear(&parse_result);
+    let base_profile = resolved.base_profile.clone();
+    let items_by_slot = resolve_to_items_by_slot(&resolved);
+
+    let bonus_re = regex::Regex::new(r"bonus_id=([0-9/:]+)").unwrap();
+    let mut upgraded_options_by_slot: HashMap<String, Vec<Value>> = HashMap::new();
+
+    for slot in selected_slots {
+        let slot_items = match items_by_slot.get(slot) {
+            Some(items) => items,
+            None => continue,
+        };
+
+        let equipped = match slot_items.iter().find(|it| {
+            it.get("is_equipped")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        }) {
+            Some(e) => e,
+            None => continue,
+        };
+
+        let old_bonus_ids: Vec<u64> = equipped
+            .get("bonus_ids")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|b| b.as_u64()).collect())
+            .unwrap_or_default();
+
+        let options = match game_data::get_upgrade_options(&old_bonus_ids) {
+            Some(o) => o,
+            None => continue,
+        };
+
+        // Find current level and filter to higher levels with relevant currency costs
+        let current_level = options
+            .iter()
+            .filter_map(|opt| {
+                let bid = opt.get("bonus_id")?.as_u64()?;
+                if old_bonus_ids.contains(&bid) {
+                    opt.get("level")?.as_u64()
+                } else {
+                    None
+                }
+            })
+            .next()
+            .unwrap_or(0);
+
+        let mut slot_upgrades: Vec<Value> = Vec::new();
+        for opt in &options {
+            let level = opt.get("level").and_then(|l| l.as_u64()).unwrap_or(0);
+            if level <= current_level {
+                continue;
+            }
+
+            // Only include if costs involve our upgrade currencies
+            let has_relevant_cost = opt
+                .get("cumulative_costs")
+                .and_then(|c| c.as_object())
+                .map(|m| {
+                    m.keys()
+                        .any(|k| upgrade_currency_ids.contains(&k.parse().unwrap_or(0)))
+                })
+                .unwrap_or(false);
+            if !has_relevant_cost {
+                continue;
+            }
+
+            let target_bonus_id = opt.get("bonus_id").and_then(|b| b.as_u64()).unwrap_or(0);
+            if target_bonus_id == 0 {
+                continue;
+            }
+
+            // Build upgraded item
+            let mut new_bonus_ids = old_bonus_ids.clone();
+            // Replace the upgrade bonus_id
+            for bid in &mut new_bonus_ids {
+                if bonuses_in_same_group(*bid, target_bonus_id) {
+                    *bid = target_bonus_id;
+                }
+            }
+
+            let mut upgraded = equipped.clone();
+            upgraded["is_equipped"] = json!(false);
+            upgraded["bonus_ids"] = json!(new_bonus_ids.clone());
+            upgraded["upgrade_levels"] = json!(level.saturating_sub(current_level));
+
+            // Update simc_string with new bonus_ids
+            if let Some(simc) = equipped.get("simc_string").and_then(|s| s.as_str()) {
+                let new_simc = bonus_re
+                    .replace(simc, |caps: &regex::Captures| {
+                        let raw = &caps[1];
+                        let sep = if raw.contains('/') { "/" } else { ":" };
+                        format!(
+                            "bonus_id={}",
+                            new_bonus_ids
+                                .iter()
+                                .map(|id| id.to_string())
+                                .collect::<Vec<_>>()
+                                .join(sep)
+                        )
+                    })
+                    .to_string();
+                upgraded["simc_string"] = json!(new_simc);
+
+                // Resolve new ilevel
+                let item_id = equipped
+                    .get("item_id")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                if let Some(info) = game_data::get_item_info(item_id, Some(&new_bonus_ids)) {
+                    if let Some(ilvl) = info.get("ilevel").and_then(|v| v.as_u64()) {
+                        upgraded["ilevel"] = json!(ilvl);
+                    }
+                }
+            }
+
+            // Cumulative cost from current to this level
+            let costs = game_data::get_upgrade_cost_between(&old_bonus_ids, &new_bonus_ids);
+            upgraded["upgrade_costs"] = json!(costs);
+
+            slot_upgrades.push(upgraded);
+        }
+
+        if !slot_upgrades.is_empty() {
+            upgraded_options_by_slot.insert(slot.clone(), slot_upgrades);
+        }
+    }
+
+    Ok(PreparedUpgradeCompare {
+        base_profile,
+        upgraded_options_by_slot,
+        upgrade_budget,
+    })
+}
+
+/// Check if two bonus IDs belong to the same upgrade group.
+fn bonuses_in_same_group(a: u64, b: u64) -> bool {
+    let bonuses = crate::item_db::bonuses();
+    let group_a = bonuses
+        .get(&a)
+        .and_then(|v| v.get("upgrade"))
+        .and_then(|u| u.get("group"))
+        .and_then(|g| g.as_u64());
+    let group_b = bonuses
+        .get(&b)
+        .and_then(|v| v.get("upgrade"))
+        .and_then(|u| u.get("group"))
+        .and_then(|g| g.as_u64());
+    group_a.is_some() && group_a == group_b
+}
+
+/// Returns everything the frontend needs to render the upgrade-compare UI in one call:
+/// equipped items, upgrade options per slot, currency budget with metadata.
+async fn get_upgrade_compare_prepare(req: web::Json<serde_json::Value>) -> HttpResponse {
+    let simc_input = req.get("simc_input").and_then(|v| v.as_str()).unwrap_or("");
+    if simc_input.len() < 10 {
+        return HttpResponse::BadRequest().json(json!({ "detail": "SimC input too short." }));
+    }
+
+    let upgrade_budget = addon_parser::parse_upgrade_currencies(simc_input);
+    let upgrade_currency_ids: std::collections::HashSet<u64> =
+        upgrade_budget.keys().copied().collect();
+
+    let parse_result = addon_parser::parse_simc_input(simc_input);
+    let resolved = gear_resolver::resolve_gear(&parse_result);
+    let items_by_slot = resolve_to_items_by_slot(&resolved);
+
+    let mut candidates: Vec<Value> = Vec::new();
+
+    for slot in crate::types::class_data::GEAR_SLOTS {
+        let slot_items = match items_by_slot.get(*slot) {
+            Some(items) => items,
+            None => continue,
+        };
+        let equipped = match slot_items.iter().find(|it| {
+            it.get("is_equipped")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        }) {
+            Some(e) => e,
+            None => continue,
+        };
+        let bonus_ids: Vec<u64> = equipped
+            .get("bonus_ids")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|b| b.as_u64()).collect())
+            .unwrap_or_default();
+        if bonus_ids.is_empty() {
+            continue;
+        }
+
+        let options = match game_data::get_upgrade_options(&bonus_ids) {
+            Some(o) => o,
+            None => continue,
+        };
+
+        // Find current level and its cumulative cost
+        let mut current_level: u64 = 0;
+        let mut current_cumulative: HashMap<u64, u64> = HashMap::new();
+        for opt in &options {
+            let bid = opt.get("bonus_id").and_then(|v| v.as_u64()).unwrap_or(0);
+            if bonus_ids.contains(&bid) {
+                current_level = opt.get("level").and_then(|v| v.as_u64()).unwrap_or(0);
+                if let Some(cc) = opt.get("cumulative_costs").and_then(|v| v.as_object()) {
+                    for (k, v) in cc {
+                        if let (Ok(cid), Some(amt)) = (k.parse::<u64>(), v.as_u64()) {
+                            current_cumulative.insert(cid, amt);
+                        }
+                    }
+                }
+                break;
+            }
+        }
+
+        // Filter to upgrades that cost our currencies
+        let upgrades: Vec<&Value> = options
+            .iter()
+            .filter(|o| {
+                let level = o.get("level").and_then(|l| l.as_u64()).unwrap_or(0);
+                if level <= current_level {
+                    return false;
+                }
+                o.get("cumulative_costs")
+                    .and_then(|c| c.as_object())
+                    .map(|m| {
+                        m.keys()
+                            .any(|k| upgrade_currency_ids.contains(&k.parse().unwrap_or(0)))
+                    })
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        if upgrades.is_empty() {
+            continue;
+        }
+
+        let max_upgrade = upgrades.last().unwrap();
+        let item_id = equipped
+            .get("item_id")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let ilevel = equipped.get("ilevel").and_then(|v| v.as_u64()).unwrap_or(0);
+        let target_ilevel = max_upgrade
+            .get("itemLevel")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        // Delta cost = target cumulative - current cumulative
+        let mut delta_costs: HashMap<String, u64> = HashMap::new();
+        if let Some(target_cc) = max_upgrade
+            .get("cumulative_costs")
+            .and_then(|v| v.as_object())
+        {
+            for (k, v) in target_cc {
+                let target_amt = v.as_u64().unwrap_or(0);
+                let current_amt = current_cumulative
+                    .get(&k.parse::<u64>().unwrap_or(0))
+                    .copied()
+                    .unwrap_or(0);
+                let delta = target_amt.saturating_sub(current_amt);
+                if delta > 0 {
+                    delta_costs.insert(k.clone(), delta);
+                }
+            }
+        }
+        let costs = json!(delta_costs);
+
+        candidates.push(json!({
+            "slot": slot,
+            "item_id": item_id,
+            "bonus_ids": bonus_ids,
+            "ilevel": ilevel,
+            "target_ilevel": target_ilevel,
+            "costs": costs,
+        }));
+    }
+
+    // Build currency info
+    let mut currency_info: HashMap<String, Value> = HashMap::new();
+    for (cid, amount) in &upgrade_budget {
+        let meta = game_data::get_currency_info(*cid);
+        currency_info.insert(cid.to_string(), json!({
+            "id": cid,
+            "amount": amount,
+            "name": meta.as_ref().and_then(|m| m.get("name")).and_then(|n| n.as_str()).unwrap_or(""),
+            "icon": meta.as_ref().and_then(|m| m.get("icon")).and_then(|i| i.as_str()).unwrap_or(""),
+        }));
+    }
+
+    HttpResponse::Ok().json(json!({
+        "candidates": candidates,
+        "currencies": currency_info,
+    }))
+}
+
+async fn get_upgrade_compare_combo_count(req: web::Json<UpgradeCompareRequest>) -> HttpResponse {
+    let simc_input = apply_talent_override(&req.simc_input, &req.options.talents);
+
+    let prepared = match prepare_upgrade_compare(&simc_input, &req.selected_slots) {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    match profileset_generator::generate_upgrade_compare_input(
+        &prepared.base_profile,
+        &prepared.upgraded_options_by_slot,
+        &prepared.upgrade_budget,
+        req.max_combinations,
+    ) {
+        Ok((_, count, _)) => HttpResponse::Ok().json(json!({ "combo_count": count })),
+        Err(e) => {
+            let count: usize = e
+                .split('(')
+                .nth(1)
+                .and_then(|s| s.split(')').next())
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            HttpResponse::Ok().json(json!({ "combo_count": count, "error": e }))
+        }
+    }
+}
+
+async fn create_upgrade_compare_sim(
+    req: web::Json<UpgradeCompareRequest>,
+    store: web::Data<Arc<dyn JobStorage>>,
+    simc_path: web::Data<PathBuf>,
+    log_buffer: web::Data<Arc<LogBuffer>>,
+) -> HttpResponse {
+    let simc_input = apply_talent_override(&req.simc_input, &req.options.talents);
+
+    let prepared = match prepare_upgrade_compare(&simc_input, &req.selected_slots) {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    let (generated_input, combo_count, combo_metadata) =
+        match profileset_generator::generate_upgrade_compare_input(
+            &prepared.base_profile,
+            &prepared.upgraded_options_by_slot,
+            &prepared.upgrade_budget,
+            req.max_combinations,
+        ) {
+            Ok(result) => result,
+            Err(e) => {
+                return HttpResponse::BadRequest().json(json!({ "detail": e }));
+            }
+        };
+
+    if combo_count == 0 {
+        return HttpResponse::BadRequest().json(json!({
+            "detail": "No valid upgrade combinations within budget."
+        }));
+    }
+
+    let generated_input = inject_expert_fields(&generated_input, &req.options);
+
+    if let Some(resp) = validate_batch(&req.options.batch_id, store.get_ref().as_ref()) {
+        return resp;
+    }
+
+    let job = Job::new(
+        generated_input.clone(),
+        "top_gear".to_string(), // Reuse top_gear result format
+        req.options.iterations,
+        req.options.fight_style.clone(),
+        req.options.target_error,
+    );
+    let job_id = job.id.clone();
+    let created_at = job.created_at.clone();
+
+    let meta_json = serde_json::to_string(&json!({
+        "_combo_metadata": combo_metadata,
+        "_combo_count": combo_count,
+    }))
+    .unwrap_or_default();
+
+    let mut job = job;
+    job.combo_metadata_json = Some(meta_json);
+    job.batch_id = req.options.batch_id.clone();
+    store.insert(job);
+
+    spawn_staged_sim(
+        store.get_ref().clone(),
+        simc_path.get_ref().clone(),
+        req.options.to_json(),
+        job_id.clone(),
+        generated_input,
+        combo_count,
+        log_buffer.get_ref().clone(),
+    );
+
+    HttpResponse::Ok().json(SimResponse {
+        id: job_id,
+        status: "pending".to_string(),
+        created_at,
+    })
+}
+
+async fn get_upgrade_options_handler(query: web::Query<HashMap<String, String>>) -> HttpResponse {
+    let bonus_ids: Vec<u64> = query
+        .get("bonus_ids")
+        .unwrap_or(&String::new())
+        .split(',')
+        .filter_map(|s| s.trim().parse().ok())
+        .collect();
+
+    match game_data::get_upgrade_options(&bonus_ids) {
+        Some(options) => HttpResponse::Ok().json(json!({ "options": options })),
+        None => HttpResponse::Ok().json(json!({ "options": [] })),
+    }
 }
 
 #[cfg(not(feature = "desktop"))]
@@ -715,9 +1242,7 @@ struct ListSimsQuery {
 }
 
 #[cfg(feature = "desktop")]
-async fn list_sims(
-    store: web::Data<Arc<dyn JobStorage>>,
-) -> HttpResponse {
+async fn list_sims(store: web::Data<Arc<dyn JobStorage>>) -> HttpResponse {
     let summaries = store.list_recent(20, None, None);
     HttpResponse::Ok().json(summaries)
 }
@@ -779,6 +1304,25 @@ async fn get_sim_status(
     }))
 }
 
+#[derive(Deserialize)]
+struct LogsQuery {
+    #[serde(default)]
+    after: usize,
+}
+
+async fn get_sim_logs(
+    path: web::Path<String>,
+    query: web::Query<LogsQuery>,
+    log_buffer: web::Data<Arc<LogBuffer>>,
+) -> HttpResponse {
+    let job_id = path.into_inner();
+    let (lines, next) = log_buffer.get_lines_after(&job_id, query.after);
+    HttpResponse::Ok().json(json!({
+        "lines": lines,
+        "next": next,
+    }))
+}
+
 async fn cancel_sim(
     path: web::Path<String>,
     store: web::Data<Arc<dyn JobStorage>>,
@@ -797,9 +1341,7 @@ async fn cancel_sim(
             simc_runner::kill_job(&job_id);
             HttpResponse::Ok().json(json!({"status": "cancelled"}))
         }
-        _ => {
-            HttpResponse::BadRequest().json(json!({"detail": "Job is not running"}))
-        }
+        _ => HttpResponse::BadRequest().json(json!({"detail": "Job is not running"})),
     }
 }
 
@@ -846,7 +1388,9 @@ async fn get_sim_raw(
                     Err(_) => HttpResponse::InternalServerError()
                         .json(json!({"detail": "Failed to parse stored result"})),
                 },
-                None => HttpResponse::NotFound().json(json!({"detail": "No results available yet"})),
+                None => {
+                    HttpResponse::NotFound().json(json!({"detail": "No results available yet"}))
+                }
             }
         }
     }
@@ -909,11 +1453,14 @@ async fn get_sim_csv(
     let result = match &job.result_json {
         Some(r) => match serde_json::from_str::<Value>(r) {
             Ok(v) => v,
-            Err(_) => return HttpResponse::InternalServerError()
-                .json(json!({"detail": "Failed to parse result"})),
+            Err(_) => {
+                return HttpResponse::InternalServerError()
+                    .json(json!({"detail": "Failed to parse result"}))
+            }
         },
-        None => return HttpResponse::NotFound()
-            .json(json!({"detail": "No results available yet"})),
+        None => {
+            return HttpResponse::NotFound().json(json!({"detail": "No results available yet"}))
+        }
     };
 
     let mut csv = String::from("actor,dps,dps_error\n");
@@ -921,7 +1468,10 @@ async fn get_sim_csv(
     if result.get("type").and_then(|t| t.as_str()) == Some("top_gear") {
         // Top Gear / Droptimizer: base + profileset results
         if let Some(base_dps) = result.get("base_dps").and_then(|v| v.as_f64()) {
-            let name = result.get("player_name").and_then(|n| n.as_str()).unwrap_or("Base");
+            let name = result
+                .get("player_name")
+                .and_then(|n| n.as_str())
+                .unwrap_or("Base");
             csv.push_str(&format!("{},{:.1},\n", name, base_dps));
         }
         if let Some(results) = result.get("results").and_then(|r| r.as_array()) {
@@ -933,22 +1483,28 @@ async fn get_sim_csv(
         }
     } else {
         // Quick Sim
-        let name = result.get("player_name").and_then(|n| n.as_str()).unwrap_or("Player");
+        let name = result
+            .get("player_name")
+            .and_then(|n| n.as_str())
+            .unwrap_or("Player");
         let dps = result.get("dps").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let error = result.get("dps_error").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let error = result
+            .get("dps_error")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
         csv.push_str(&format!("{},{:.1},{:.1}\n", name, dps, error));
     }
 
     HttpResponse::Ok()
         .content_type("text/csv; charset=utf-8")
-        .insert_header(("Content-Disposition", format!("attachment; filename=\"sim-{}.csv\"", job_id)))
+        .insert_header((
+            "Content-Disposition",
+            format!("attachment; filename=\"sim-{}.csv\"", job_id),
+        ))
         .body(csv)
 }
 
-async fn get_item_info(
-    path: web::Path<u64>,
-    query: web::Query<BonusIdsQuery>,
-) -> HttpResponse {
+async fn get_item_info(path: web::Path<u64>, query: web::Query<BonusIdsQuery>) -> HttpResponse {
     let item_id = path.into_inner();
     let bonus_list: Vec<u64> = if query.bonus_ids.is_empty() {
         Vec::new()
@@ -980,9 +1536,7 @@ async fn get_item_info(
     HttpResponse::Ok().json(result)
 }
 
-async fn get_item_info_batch(
-    req: web::Json<ItemInfoBatchRequest>,
-) -> HttpResponse {
+async fn get_item_info_batch(req: web::Json<ItemInfoBatchRequest>) -> HttpResponse {
     let mut items_list = req.items.clone();
     if items_list.is_empty() && !req.item_ids.is_empty() {
         items_list = req
@@ -1000,10 +1554,7 @@ async fn get_item_info_batch(
     let mut unique_items: Vec<(u64, Vec<u64>)> = Vec::new();
 
     for item in &items_list {
-        let iid = item
-            .get("item_id")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
+        let iid = item.get("item_id").and_then(|v| v.as_u64()).unwrap_or(0);
         let bonus: Vec<u64> = item
             .get("bonus_ids")
             .and_then(|v| v.as_array())
@@ -1079,7 +1630,11 @@ async fn get_max_upgrade_ilevels(body: web::Json<Vec<Value>>) -> HttpResponse {
             let key = format!(
                 "{}:{}",
                 item_id,
-                sorted_ids.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(",")
+                sorted_ids
+                    .iter()
+                    .map(|b| b.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
             );
             results.insert(key, ilevel);
         }
@@ -1104,6 +1659,12 @@ async fn get_upgrade_options(query: web::Query<BonusIdsQuery>) -> HttpResponse {
     }
 }
 
+async fn get_config() -> HttpResponse {
+    HttpResponse::Ok().json(json!({
+        "max_scenarios": *storage::MAX_SCENARIOS,
+    }))
+}
+
 async fn health_check() -> HttpResponse {
     let threads = std::thread::available_parallelism()
         .map(|n| n.get())
@@ -1125,9 +1686,7 @@ async fn system_stats(stats: web::Data<Arc<Mutex<SystemStats>>>) -> HttpResponse
     }))
 }
 
-async fn resolve_gear(
-    req: web::Json<ResolveGearRequest>,
-) -> HttpResponse {
+async fn resolve_gear(req: web::Json<ResolveGearRequest>) -> HttpResponse {
     let simc_input = if req.max_upgrade {
         game_data::upgrade_simc_input(&req.simc_input)
     } else {
@@ -1143,13 +1702,19 @@ async fn get_season_config() -> HttpResponse {
     let cfg = crate::item_db::season_cfg();
 
     // Parse the new typed fields from the season config JSON
-    let season = cfg.get("season").and_then(|s| s.as_str()).unwrap_or("").to_string();
+    let season = cfg
+        .get("season")
+        .and_then(|s| s.as_str())
+        .unwrap_or("")
+        .to_string();
 
-    let raid_difficulties: Vec<DifficultyDef> = cfg.get("raidDifficulties")
+    let raid_difficulties: Vec<DifficultyDef> = cfg
+        .get("raidDifficulties")
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
 
-    let dungeon_categories: Vec<DungeonCategory> = cfg.get("dungeonCategories")
+    let dungeon_categories: Vec<DungeonCategory> = cfg
+        .get("dungeonCategories")
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
 
@@ -1174,26 +1739,48 @@ struct DropsQuery {
 
 async fn get_drops_by_type(path: web::Path<String>, query: web::Query<DropsQuery>) -> HttpResponse {
     let instance_type = path.into_inner();
-    let class_name = if query.class_name.is_empty() { None } else { Some(query.class_name.as_str()) };
-    let spec = if query.spec.is_empty() { None } else { Some(query.spec.as_str()) };
+    let class_name = if query.class_name.is_empty() {
+        None
+    } else {
+        Some(query.class_name.as_str())
+    };
+    let spec = if query.spec.is_empty() {
+        None
+    } else {
+        Some(query.spec.as_str())
+    };
     match game_data::get_drops_by_type(&instance_type, class_name, spec) {
         Some(drops) => HttpResponse::Ok().json(drops),
-        None => HttpResponse::NotFound().json(json!({"detail": "No drops found for this instance type"})),
+        None => HttpResponse::NotFound()
+            .json(json!({"detail": "No drops found for this instance type"})),
     }
 }
 
 async fn get_instance_drops(path: web::Path<i64>, query: web::Query<DropsQuery>) -> HttpResponse {
     let instance_id = path.into_inner();
-    let class_name = if query.class_name.is_empty() { None } else { Some(query.class_name.as_str()) };
-    let spec = if query.spec.is_empty() { None } else { Some(query.spec.as_str()) };
+    let class_name = if query.class_name.is_empty() {
+        None
+    } else {
+        Some(query.class_name.as_str())
+    };
+    let spec = if query.spec.is_empty() {
+        None
+    } else {
+        Some(query.spec.as_str())
+    };
     match game_data::get_instance_drops(instance_id, class_name, spec) {
         Some(drops) => HttpResponse::Ok().json(drops),
-        None => HttpResponse::NotFound().json(json!({"detail": "Instance not found or has no drops"})),
+        None => {
+            HttpResponse::NotFound().json(json!({"detail": "Instance not found or has no drops"}))
+        }
     }
 }
 
 /// SPA fallback: serve the appropriate HTML file for client-side routes
-async fn spa_fallback(req: HttpRequest, frontend_dir: web::Data<FrontendDir>) -> actix_web::Result<NamedFile> {
+async fn spa_fallback(
+    req: HttpRequest,
+    frontend_dir: web::Data<FrontendDir>,
+) -> actix_web::Result<NamedFile> {
     let path = req.path();
 
     // Try exact file match first (e.g., /quick-sim -> quick-sim.html)
@@ -1222,10 +1809,9 @@ pub async fn start(resource_dir: &Path, frontend_dir: Option<PathBuf>) -> u16 {
     } else {
         resource_dir.join("simc").join("simc")
     };
-    let storage: Arc<dyn JobStorage> = Arc::new(
-        crate::storage::memory::MemoryStorage::new()
-    );
-    start_with_storage(storage, simc_path, 17384, frontend_dir).await
+    let data_dir = Some(resource_dir.join("data"));
+    let storage: Arc<dyn JobStorage> = Arc::new(crate::storage::memory::MemoryStorage::new());
+    start_with_storage(storage, simc_path, 17384, frontend_dir, data_dir).await
 }
 
 /// Start the actix-web HTTP server with a given storage backend.
@@ -1235,8 +1821,17 @@ pub async fn start_with_storage(
     simc_path: PathBuf,
     port: u16,
     frontend_dir: Option<PathBuf>,
+    data_dir: Option<PathBuf>,
 ) -> u16 {
-    start_with_storage_bind(storage, simc_path, "127.0.0.1", port, frontend_dir).await
+    start_with_storage_bind(
+        storage,
+        simc_path,
+        "127.0.0.1",
+        port,
+        frontend_dir,
+        data_dir,
+    )
+    .await
 }
 
 /// Start the actix-web HTTP server with a given storage backend and bind address.
@@ -1247,12 +1842,15 @@ pub async fn start_with_storage_bind(
     bind_host: &str,
     port: u16,
     frontend_dir: Option<PathBuf>,
+    data_dir: Option<PathBuf>,
 ) -> u16 {
     let store_data = web::Data::new(storage);
     let simc_data = web::Data::new(simc_path);
+    let log_data = web::Data::new(Arc::new(LogBuffer::new()));
     #[cfg(feature = "desktop")]
     let stats_data = web::Data::new(Arc::new(Mutex::new(SystemStats::new())));
     let frontend = frontend_dir.clone();
+    let data = data_dir.clone();
 
     let bind_addr = format!("{}:{}", bind_host, port);
 
@@ -1266,33 +1864,72 @@ pub async fn start_with_storage_bind(
         let mut app = App::new()
             .wrap(cors)
             .app_data(store_data.clone())
-            .app_data(simc_data.clone());
+            .app_data(simc_data.clone())
+            .app_data(log_data.clone());
         #[cfg(feature = "desktop")]
-        { app = app.app_data(stats_data.clone()); }
+        {
+            app = app.app_data(stats_data.clone());
+        }
         let mut app = app
             .route("/api/sim", web::post().to(create_sim))
             .route("/api/top-gear/sim", web::post().to(create_top_gear_sim))
-            .route("/api/top-gear/combo-count", web::post().to(get_top_gear_combo_count))
+            .route(
+                "/api/top-gear/combo-count",
+                web::post().to(get_top_gear_combo_count),
+            )
             .route("/api/sim/{id}", web::get().to(get_sim_status))
+            .route("/api/sim/{id}/logs", web::get().to(get_sim_logs))
             .route("/api/sim/{id}/cancel", web::post().to(cancel_sim))
             .route("/api/sim/{id}/raw", web::get().to(get_sim_raw))
             .route("/api/sim/{id}/input", web::get().to(get_sim_input))
             .route("/api/sim/{id}/html", web::get().to(get_sim_html))
-            .route("/api/sim/{id}/output.txt", web::get().to(get_sim_text_output))
+            .route(
+                "/api/sim/{id}/output.txt",
+                web::get().to(get_sim_text_output),
+            )
             .route("/api/sim/{id}/data.csv", web::get().to(get_sim_csv))
             .route("/api/item-info/{id}", web::get().to(get_item_info))
             .route("/api/item-info/batch", web::post().to(get_item_info_batch))
             .route("/api/enchant-info/{id}", web::get().to(get_enchant_info))
             .route("/api/gem-info/{id}", web::get().to(get_gem_info))
-            .route("/api/max-upgrade-ilevels", web::post().to(get_max_upgrade_ilevels))
+            .route(
+                "/api/max-upgrade-ilevels",
+                web::post().to(get_max_upgrade_ilevels),
+            )
             .route("/api/upgrade-options", web::get().to(get_upgrade_options))
             .route("/api/upgrade-tracks", web::get().to(list_upgrade_tracks))
             .route("/api/gear/resolve", web::post().to(resolve_gear))
             .route("/api/season-config", web::get().to(get_season_config))
-            .route("/api/droptimizer/sim", web::post().to(create_droptimizer_sim))
+            .route(
+                "/api/droptimizer/sim",
+                web::post().to(create_droptimizer_sim),
+            )
             .route("/api/instances", web::get().to(list_instances))
-            .route("/api/instances/type/{type}/drops", web::get().to(get_drops_by_type))
-            .route("/api/instances/{id}/drops", web::get().to(get_instance_drops))
+            .route(
+                "/api/instances/type/{type}/drops",
+                web::get().to(get_drops_by_type),
+            )
+            .route(
+                "/api/instances/{id}/drops",
+                web::get().to(get_instance_drops),
+            )
+            .route(
+                "/api/upgrade-compare/prepare",
+                web::post().to(get_upgrade_compare_prepare),
+            )
+            .route(
+                "/api/upgrade-compare/sim",
+                web::post().to(create_upgrade_compare_sim),
+            )
+            .route(
+                "/api/upgrade-compare/combo-count",
+                web::post().to(get_upgrade_compare_combo_count),
+            )
+            .route(
+                "/api/upgrade-options",
+                web::get().to(get_upgrade_options_handler),
+            )
+            .route("/api/config", web::get().to(get_config))
             .route("/health", web::get().to(health_check));
         #[cfg(feature = "desktop")]
         {
@@ -1305,21 +1942,35 @@ pub async fn start_with_storage_bind(
             app = app.route("/api/sims", web::get().to(list_sims_filtered));
         }
 
+        // Serve cached assets from data directory
+        if let Some(ref dir) = data {
+            let images_dir = dir.join("instance-images");
+            if images_dir.exists() {
+                app = app.service(
+                    actix_files::Files::new("/api/data/instance-images", images_dir)
+                        .prefer_utf8(true),
+                );
+            }
+            let static_dir = dir.join("static");
+            if static_dir.exists() {
+                app = app.service(
+                    actix_files::Files::new("/api/data/static", static_dir).prefer_utf8(true),
+                );
+            }
+        }
+
         // Serve static frontend files in production (not in dev mode)
         if let Some(ref dir) = frontend {
             app = app
                 .app_data(web::Data::new(FrontendDir(dir.clone())))
-                .service(
-                    actix_files::Files::new("/_next", dir.join("_next"))
-                        .prefer_utf8(true)
-                )
+                .service(actix_files::Files::new("/_next", dir.join("_next")).prefer_utf8(true))
                 .default_service(web::get().to(spa_fallback));
         }
 
         app
     })
     .bind(&bind_addr)
-    .expect(&format!("Failed to bind to {}", bind_addr))
+    .unwrap_or_else(|_| panic!("Failed to bind to {}", bind_addr))
     .run();
 
     tokio::spawn(server);

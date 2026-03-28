@@ -27,13 +27,18 @@ async fn main() {
         env_or("PORT", "17384")
     } else {
         env_or("PORT", "8000")
-    }.parse().expect("PORT must be a number");
+    }
+    .parse()
+    .expect("PORT must be a number");
 
     println!("Loading game data from {:?}", data_dir);
     game_data::load(&data_dir);
 
     let storage: Arc<dyn JobStorage> = if desktop_mode {
-        println!("Starting SimHammer in desktop mode on {}:{}", bind_host, port);
+        println!(
+            "Starting SimHammer in desktop mode on {}:{}",
+            bind_host, port
+        );
         Arc::new(simhammer_core::storage::memory::MemoryStorage::new())
     } else {
         let db_url = env_or("DATABASE_URL", "simhammer.db");
@@ -55,7 +60,15 @@ async fn main() {
         }
     };
 
-    server::start_with_storage_bind(storage, simc_path, &bind_host, port, frontend_dir).await;
+    server::start_with_storage_bind(
+        storage,
+        simc_path,
+        &bind_host,
+        port,
+        frontend_dir,
+        Some(data_dir),
+    )
+    .await;
 
     // Keep the server running
     tokio::signal::ctrl_c().await.ok();

@@ -1,11 +1,12 @@
-pub mod types;
-pub mod item_db;
 pub mod addon_parser;
-pub mod gear_resolver;
 pub mod game_data;
+pub mod gear_resolver;
+pub mod item_db;
+pub mod log_buffer;
 pub mod models;
 pub mod profileset_generator;
 pub mod result_parser;
 pub mod server;
 pub mod simc_runner;
 pub mod storage;
+pub mod types;

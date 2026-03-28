@@ -24,7 +24,10 @@ static RUNNING_PROCESSES: Lazy<Mutex<HashMap<String, u32>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 fn register_process(job_id: &str, pid: u32) {
-    RUNNING_PROCESSES.lock().unwrap().insert(job_id.to_string(), pid);
+    RUNNING_PROCESSES
+        .lock()
+        .unwrap()
+        .insert(job_id.to_string(), pid);
 }
 
 fn unregister_process(job_id: &str) {
@@ -95,10 +98,7 @@ fn max_threads() -> u32 {
 /// Resolve the thread count from the API options.
 /// A value of 0 (or absent) means use all available threads.
 fn resolve_threads(options: &Value) -> u32 {
-    let requested = options
-        .get("threads")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0) as u32;
+    let requested = options.get("threads").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
     if requested == 0 {
         max_threads()
     } else {
@@ -141,9 +141,24 @@ struct Stage {
 }
 
 const STAGES: &[Stage] = &[
-    Stage { name: "Low",    target_error: 1.0,  keep_top: 0.5, min_keep: 10 },
-    Stage { name: "Medium", target_error: 0.2,  keep_top: 0.3, min_keep: 5  },
-    Stage { name: "High",   target_error: 0.05, keep_top: 1.0, min_keep: 1  },
+    Stage {
+        name: "Low",
+        target_error: 1.0,
+        keep_top: 0.5,
+        min_keep: 10,
+    },
+    Stage {
+        name: "Medium",
+        target_error: 0.2,
+        keep_top: 0.3,
+        min_keep: 5,
+    },
+    Stage {
+        name: "High",
+        target_error: 0.05,
+        keep_top: 1.0,
+        min_keep: 1,
+    },
 ];
 
 const STAGED_THRESHOLD: usize = 10;
@@ -151,6 +166,8 @@ const STAGED_THRESHOLD: usize = 10;
 /// Run simc as a subprocess, streaming stderr for real-time profileset progress.
 /// `on_profileset_progress(current, total)` is called whenever simc reports
 /// completing a profileset (e.g. "3/7").
+/// `on_log(line)` is called for every line of output from either stdout or stderr.
+#[allow(clippy::too_many_arguments)]
 async fn run_simc_subprocess(
     simc_path: &Path,
     job_id: &str,
@@ -166,6 +183,7 @@ async fn run_simc_subprocess(
     stage_name: &str,
     generate_html: bool,
     on_profileset_progress: impl Fn(usize, usize),
+    on_log: impl Fn(&str),
 ) -> Result<SimcOutput, String> {
     let suffix = if stage_name.is_empty() {
         String::new()
@@ -173,7 +191,7 @@ async fn run_simc_subprocess(
         format!("_{}", stage_name)
     };
 
-    let tmp_dir = TempDir::with_prefix(&format!("simc_{}{}_", job_id, suffix))
+    let tmp_dir = TempDir::with_prefix(format!("simc_{}{}_", job_id, suffix))
         .map_err(|e| format!("Failed to create temp dir: {}", e))?;
 
     let input_file = tmp_dir.path().join("input.simc");
@@ -196,6 +214,15 @@ async fn run_simc_subprocess(
         let _ = std::fs::remove_file(&zone_id);
     }
 
+    // On Unix, wrap with stdbuf -oL to force line-buffered stdout so log lines
+    // arrive in real-time instead of sitting in a pipe buffer.
+    #[cfg(unix)]
+    let mut cmd = {
+        let mut c = Command::new("stdbuf");
+        c.arg("-oL").arg(simc_path);
+        c
+    };
+    #[cfg(not(unix))]
     let mut cmd = Command::new(simc_path);
     #[cfg(windows)]
     {
@@ -212,8 +239,7 @@ async fn run_simc_subprocess(
     if generate_html {
         cmd.arg(format!("html={}", html_file.display()));
     }
-    cmd
-        .arg(format!("iterations={}", iterations))
+    cmd.arg(format!("iterations={}", iterations))
         .arg(format!("target_error={}", target_error))
         .arg(format!("threads={}", threads))
         .arg(format!(
@@ -249,7 +275,13 @@ async fn run_simc_subprocess(
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
-    println!("Running simc: {} (threads={}, desired_targets={}, max_time={}, affinity limited)", simc_path.display(), threads, desired_targets, max_time);
+    println!(
+        "Running simc: {} (threads={}, desired_targets={}, max_time={}, affinity limited)",
+        simc_path.display(),
+        threads,
+        desired_targets,
+        max_time
+    );
 
     let mut child = cmd
         .spawn()
@@ -262,44 +294,79 @@ async fn run_simc_subprocess(
         set_process_affinity(pid, threads);
     }
 
-    // Consume stdout in a background task to prevent pipe deadlock.
-    // We only need stdout for error messages; the result goes to the JSON file.
-    let stdout = child.stdout.take();
-    let stdout_task = tokio::spawn(async move {
-        let mut buf = Vec::new();
-        if let Some(mut out) = stdout {
-            let _ = tokio::io::AsyncReadExt::read_to_end(&mut out, &mut buf).await;
+    // Multiplex stdout + stderr through a single channel for unified log streaming.
+    // Each line is tagged (is_stderr, text).
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<(bool, String)>(256);
+
+    let stderr = child.stderr.take();
+    let tx_err = tx.clone();
+    tokio::spawn(async move {
+        if let Some(stream) = stderr {
+            let mut reader = BufReader::new(stream);
+            let mut line_buf = String::new();
+            loop {
+                line_buf.clear();
+                match AsyncBufReadExt::read_line(&mut reader, &mut line_buf).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {
+                        // simc uses \r to overwrite progress lines in-place.
+                        // read_line reads until \n, so a single "line" may contain
+                        // multiple \r-separated updates. Take the last segment.
+                        let resolved = line_buf
+                            .trim_end()
+                            .rsplit('\r')
+                            .next()
+                            .unwrap_or("")
+                            .to_string();
+                        if !resolved.is_empty() {
+                            let _ = tx_err.send((true, resolved)).await;
+                        }
+                    }
+                }
+            }
         }
-        buf
     });
 
-    // Read stderr line-by-line for real-time profileset progress.
-    let stderr = child.stderr.take();
-    let mut stderr_collected: Vec<String> = Vec::new();
-    let progress_re = Regex::new(r"(\d+)/(\d+)").unwrap();
-
-    if let Some(err_stream) = stderr {
-        let mut reader = BufReader::new(err_stream);
-        let mut line_buf = String::new();
-        loop {
-            line_buf.clear();
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(SIMC_TIMEOUT_SECS),
-                reader.read_line(&mut line_buf),
-            )
-            .await
-            {
-                Ok(Ok(0)) => break,   // EOF — process closed stderr
-                Ok(Err(_)) => break,  // read error
-                Err(_) => {
-                    // Timeout — kill the child
-                    unregister_process(job_id);
-                    let _ = child.kill().await;
-                    return Err(format!("simc timed out after {}s", SIMC_TIMEOUT_SECS));
+    let stdout = child.stdout.take();
+    let tx_out = tx.clone();
+    tokio::spawn(async move {
+        if let Some(stream) = stdout {
+            let mut reader = BufReader::new(stream);
+            let mut line_buf = String::new();
+            loop {
+                line_buf.clear();
+                match AsyncBufReadExt::read_line(&mut reader, &mut line_buf).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {
+                        let resolved = line_buf
+                            .trim_end()
+                            .rsplit('\r')
+                            .next()
+                            .unwrap_or("")
+                            .to_string();
+                        if !resolved.is_empty() {
+                            let _ = tx_out.send((false, resolved)).await;
+                        }
+                    }
                 }
-                Ok(Ok(_)) => {
-                    let line = line_buf.trim_end().to_string();
-                    // Look for profileset progress like "3/7"
+            }
+        }
+    });
+
+    // Drop our copy so rx completes when both reader tasks finish.
+    drop(tx);
+
+    let progress_re = Regex::new(r"(\d+)/(\d+)").unwrap();
+    let mut stderr_collected: Vec<String> = Vec::new();
+    let mut stdout_collected: Vec<String> = Vec::new();
+
+    loop {
+        match tokio::time::timeout(std::time::Duration::from_secs(SIMC_TIMEOUT_SECS), rx.recv())
+            .await
+        {
+            Ok(Some((is_stderr, line))) => {
+                on_log(&line);
+                if is_stderr {
                     if let Some(caps) = progress_re.captures(&line) {
                         if let (Ok(current), Ok(total)) =
                             (caps[1].parse::<usize>(), caps[2].parse::<usize>())
@@ -310,7 +377,16 @@ async fn run_simc_subprocess(
                         }
                     }
                     stderr_collected.push(line);
+                } else {
+                    stdout_collected.push(line);
                 }
+            }
+            Ok(None) => break, // both senders dropped — streams closed
+            Err(_) => {
+                // Timeout — no output for SIMC_TIMEOUT_SECS, kill the child
+                unregister_process(job_id);
+                let _ = child.kill().await;
+                return Err(format!("simc timed out after {}s", SIMC_TIMEOUT_SECS));
             }
         }
     }
@@ -323,15 +399,13 @@ async fn run_simc_subprocess(
 
     unregister_process(job_id);
 
-    let stdout_bytes = stdout_task.await.unwrap_or_default();
-
     if !status.success() {
         let stderr_text = stderr_collected.join("\n");
-        let stdout_text = String::from_utf8_lossy(&stdout_bytes);
+        let stdout_text = stdout_collected.join("\n");
         let error_msg = if !stderr_text.trim().is_empty() {
             stderr_text
         } else if !stdout_text.trim().is_empty() {
-            stdout_text.to_string()
+            stdout_text
         } else {
             "simc exited with non-zero code".to_string()
         };
@@ -358,13 +432,17 @@ async fn run_simc_subprocess(
         None
     };
 
-    let text_output = if !stdout_bytes.is_empty() {
-        Some(String::from_utf8_lossy(&stdout_bytes).to_string())
+    let text_output = if !stdout_collected.is_empty() {
+        Some(stdout_collected.join("\n"))
     } else {
         None
     };
 
-    Ok(SimcOutput { json, html_report, text_output })
+    Ok(SimcOutput {
+        json,
+        html_report,
+        text_output,
+    })
 }
 
 fn get_profileset_results(raw: &Value) -> Vec<Value> {
@@ -376,7 +454,10 @@ fn get_profileset_results(raw: &Value) -> Vec<Value> {
         .unwrap_or_default()
 }
 
-pub fn filter_simc_input(simc_input: &str, keep_combos: &std::collections::HashSet<String>) -> String {
+pub fn filter_simc_input(
+    simc_input: &str,
+    keep_combos: &std::collections::HashSet<String>,
+) -> String {
     let header_re = Regex::new(r"^###\s+(Combo \d+)").unwrap();
     let lines: Vec<&str> = simc_input.split('\n').collect();
     let mut output: Vec<&str> = Vec::new();
@@ -422,6 +503,7 @@ pub async fn run_simc(
     job_id: &str,
     simc_input: &str,
     options: &Value,
+    on_log: impl Fn(&str),
 ) -> Result<SimcOutput, String> {
     let fight_style = options
         .get("fight_style")
@@ -435,10 +517,8 @@ pub async fn run_simc(
         .get("iterations")
         .and_then(|v| v.as_u64())
         .unwrap_or(1000) as u32;
-    let calculate_scale_factors = options
-        .get("sim_type")
-        .and_then(|v| v.as_str())
-        == Some("stat_weights");
+    let calculate_scale_factors =
+        options.get("sim_type").and_then(|v| v.as_str()) == Some("stat_weights");
     let threads = resolve_threads(options);
     let desired_targets = options
         .get("desired_targets")
@@ -467,13 +547,15 @@ pub async fn run_simc(
         calculate_scale_factors,
         single_actor_batch,
         "",
-        true, // generate HTML for quick sims
+        true,      // generate HTML for quick sims
         |_, _| {}, // Quick sim has no profilesets to track
+        on_log,
     )
     .await
 }
 
 /// Run a multi-stage simulation for Top Gear.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_simc_staged(
     simc_path: &Path,
     job_id: &str,
@@ -482,6 +564,7 @@ pub async fn run_simc_staged(
     combo_count: usize,
     on_progress: impl Fn(u8, &str, &str),
     on_stage_complete: impl Fn(&str),
+    on_log: impl Fn(&str) + Clone,
 ) -> Result<SimcOutput, String> {
     let fight_style = options
         .get("fight_style")
@@ -534,6 +617,7 @@ pub async fn run_simc_staged(
                     &format!("{}/{} profilesets", current, total),
                 );
             },
+            on_log,
         )
         .await;
     }
@@ -596,6 +680,7 @@ pub async fn run_simc_staged(
                     ),
                 );
             },
+            on_log.clone(),
         )
         .await?;
 
@@ -618,7 +703,11 @@ pub async fn run_simc_staged(
         );
 
         if keep_count >= profilesets.len() {
-            on_stage_complete(&format!("{} · kept all {} combos", stage.name, profilesets.len()));
+            on_stage_complete(&format!(
+                "{} · kept all {} combos",
+                stage.name,
+                profilesets.len()
+            ));
             continue;
         }
 
@@ -626,13 +715,19 @@ pub async fn run_simc_staged(
         sorted_ps.sort_by(|a, b| {
             let a_mean = a.get("mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
             let b_mean = b.get("mean").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            b_mean.partial_cmp(&a_mean).unwrap_or(std::cmp::Ordering::Equal)
+            b_mean
+                .partial_cmp(&a_mean)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         let keep_combos: std::collections::HashSet<String> = sorted_ps
             .iter()
             .take(keep_count)
-            .filter_map(|ps| ps.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+            .filter_map(|ps| {
+                ps.get("name")
+                    .and_then(|n| n.as_str())
+                    .map(|s| s.to_string())
+            })
             .collect();
 
         // Save eliminated combos' DPS from this stage
@@ -643,7 +738,12 @@ pub async fn run_simc_staged(
             }
         }
 
-        on_stage_complete(&format!("{} · {} → {} combos", stage.name, profilesets.len(), keep_combos.len()));
+        on_stage_complete(&format!(
+            "{} · {} → {} combos",
+            stage.name,
+            profilesets.len(),
+            keep_combos.len()
+        ));
 
         println!(
             "Job {}: Stage {} complete — keeping {}/{} combos",
@@ -660,13 +760,18 @@ pub async fn run_simc_staged(
     // Inject eliminated combos into the final result so all combos appear in output.
     if !eliminated.is_empty() {
         if let Some(ref mut output) = result {
-            if let Some(results_arr) = output.json
+            if let Some(results_arr) = output
+                .json
                 .pointer_mut("/sim/profilesets/results")
                 .and_then(|v| v.as_array_mut())
             {
                 let final_names: std::collections::HashSet<String> = results_arr
                     .iter()
-                    .filter_map(|ps| ps.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                    .filter_map(|ps| {
+                        ps.get("name")
+                            .and_then(|n| n.as_str())
+                            .map(|s| s.to_string())
+                    })
                     .collect();
                 for (name, ps) in &eliminated {
                     if !final_names.contains(name) {

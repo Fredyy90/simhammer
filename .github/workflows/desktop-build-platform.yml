@@ -9,6 +9,10 @@ on:
       os:
         required: true
         type: string
+      version:
+        required: false
+        type: string
+        default: ''
     secrets:
       CSC_LINK:
         required: false
@@ -113,10 +117,24 @@ jobs:
             curl -sL -o "$f" "https://www.raidbots.com/static/data/live/$f"
           done
           cp ../../core/season-config.json ./season-config.json 2>/dev/null || true
+          curl -sL -o blizzard-season.json https://simhammer.com/api/blizzard/season || true
+          curl -sL -o blizzard-instances.json https://simhammer.com/api/blizzard/instances || true
 
       - name: Compact game data
         shell: bash
         run: node backend/scripts/compact-data.js backend/resources/data-full backend/resources/data
+
+      # -- Version --
+      - name: Set version
+        if: inputs.version != ''
+        shell: bash
+        run: |
+          cd desktop
+          node -e "
+            const pkg = require('./package.json');
+            pkg.version = '${{ inputs.version }}';
+            require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
 
       # -- Frontend --
       - name: Install frontend dependencies
