@@ -7,6 +7,30 @@ import FightStyleSelector from './FightStyleSelector';
 import ScenarioBuilder from './ScenarioBuilder';
 import TalentPicker from './TalentPicker';
 
+/** Adler-32 checksum matching the SimC addon's implementation. */
+function adler32(s: string): number {
+  const prime = 65521;
+  let s1 = 1;
+  let s2 = 0;
+  for (let i = 0; i < s.length; i++) {
+    s1 = (s1 + s.charCodeAt(i)) % prime;
+    s2 = (s2 + s1) % prime;
+  }
+  return ((s2 << 16) | s1) >>> 0;
+}
+
+/** Validate the SimC addon checksum. Returns null if valid or no checksum present. */
+function validateChecksum(input: string): 'valid' | 'invalid' | null {
+  const match = input.match(/^#\s*Checksum:\s*([0-9a-fA-F]+)\s*$/m);
+  if (!match) return null;
+  const expected = parseInt(match[1], 16);
+  // The checksum covers everything before the checksum line
+  const idx = input.indexOf(match[0]);
+  const body = input.substring(0, idx);
+  const computed = adler32(body);
+  return computed === expected ? 'valid' : 'invalid';
+}
+
 function parseCharacterInfo(input: string) {
   if (!input) return null;
   const nameMatch = input.match(/^(\w+)="(.+)"$/m);
@@ -312,6 +336,7 @@ export default function SimSharedConfig() {
   if (!showConfig) return null;
 
   const detectedInfo = parseCharacterInfo(simcInput);
+  const checksumStatus = useMemo(() => validateChecksum(simcInput), [simcInput]);
 
   return (
     <div className="mb-6 space-y-4">
@@ -323,6 +348,16 @@ export default function SimSharedConfig() {
           placeholder="Paste your SimC addon export here..."
           className="input-field h-40 resize-y font-mono text-[11px] leading-relaxed"
         />
+        {checksumStatus === 'invalid' && (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+            <svg className="h-4 w-4 shrink-0 text-amber-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M8 1L1 14h14L8 1zM8 6v4M8 12v.5" />
+            </svg>
+            <p className="text-[12px] text-amber-300">
+              This input appears to have been manually edited. Results may not reflect your actual in-game character.
+            </p>
+          </div>
+        )}
         {detectedInfo && (
           <div className="flex items-center justify-between rounded-lg bg-surface-2 px-3.5 py-2">
             <div className="flex items-center gap-2">
