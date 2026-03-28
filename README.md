@@ -6,6 +6,12 @@ SimulationCraft made simple. Run sims from your browser or download the desktop 
 
 ---
 
+<p align="center">
+  <img src="docs/images/quick-sim.png" alt="Quick Sim" width="32%">
+  <img src="docs/images/top-gear.png" alt="Top Gear" width="32%">
+  <img src="docs/images/drop-finder.png" alt="Drop Finder" width="32%">
+</p>
+
 ## Sim Types
 
 | | Description |
