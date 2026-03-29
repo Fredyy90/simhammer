@@ -365,6 +365,32 @@ pub fn spec_id_to_name(spec_id: u64) -> Option<&'static str> {
         .map(|s| s.name)
 }
 
+/// Map a SimC class name to its WoW numeric class ID.
+pub fn class_wow_id(class_name: &str) -> Option<u64> {
+    let n = class_name.to_lowercase();
+    // WoW class IDs: warrior=1, paladin=2, hunter=3, rogue=4, priest=5,
+    // death_knight=6, shaman=7, mage=8, warlock=9, monk=10, druid=11,
+    // demon_hunter=12, evoker=13
+    const WOW_IDS: &[(&str, u64)] = &[
+        ("warrior", 1),
+        ("paladin", 2),
+        ("hunter", 3),
+        ("rogue", 4),
+        ("priest", 5),
+        ("death_knight", 6),
+        ("deathknight", 6),
+        ("shaman", 7),
+        ("mage", 8),
+        ("warlock", 9),
+        ("monk", 10),
+        ("druid", 11),
+        ("demon_hunter", 12),
+        ("demonhunter", 12),
+        ("evoker", 13),
+    ];
+    WOW_IDS.iter().find(|(name, _)| *name == n).map(|(_, id)| *id)
+}
+
 // ---- Detection ----
 
 /// Detect the character class from a simc input string.

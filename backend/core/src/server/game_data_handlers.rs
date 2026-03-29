@@ -159,7 +159,15 @@ pub(super) async fn resolve_gear(req: web::Json<ResolveGearRequest>) -> HttpResp
         req.simc_input.clone()
     };
     let parse_result = addon_parser::parse_simc_input(&simc_input);
-    let resolved = gear_resolver::resolve_gear(&parse_result);
+    // Always parse catalyst charges so the frontend can show the toggle
+    let currency_id = crate::item_db::catalyst_currency_id();
+    let catalyst_charges = crate::addon_parser::parse_catalyst_charges(&req.simc_input, currency_id);
+    let mut resolved = if req.catalyst && catalyst_charges.is_some() {
+        gear_resolver::resolve_gear_with_catalyst(&parse_result, catalyst_charges)
+    } else {
+        gear_resolver::resolve_gear(&parse_result)
+    };
+    resolved.catalyst_charges = catalyst_charges;
     HttpResponse::Ok().json(resolved)
 }
 

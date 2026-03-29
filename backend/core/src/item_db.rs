@@ -4,7 +4,7 @@
 
 use once_cell::sync::OnceCell;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -28,6 +28,27 @@ static UPGRADE_STEP_COSTS: OnceCell<HashMap<u64, HashMap<u64, u64>>> = OnceCell:
 static CURRENCY_INFO: OnceCell<HashMap<u64, (String, String)>> = OnceCell::new();
 static SEASON_CONFIG: OnceCell<Value> = OnceCell::new();
 static TALENT_TREES: OnceCell<HashMap<u64, Value>> = OnceCell::new();
+
+/// Catalyst tier item info for a specific class + slot combination.
+#[derive(Debug, Clone)]
+pub struct CatalystTierItem {
+    pub item_id: u64,
+    pub name: String,
+    pub icon: String,
+}
+
+/// Catalyst conversion data for the current season.
+struct CatalystData {
+    /// Maps (wow_class_id, inventory_type) → tier item info.
+    /// inventory_type 20 (robe) is normalized to 5 (chest).
+    tier_items: HashMap<(u64, u64), CatalystTierItem>,
+    /// Set of all tier item IDs (for "is this already a tier piece?" checks).
+    tier_item_ids: HashSet<u64>,
+    /// Currency ID for catalyst charges (e.g. 3378 for Midnight Catalyst).
+    pub catalyst_currency_id: u64,
+}
+
+static CATALYST: OnceCell<CatalystData> = OnceCell::new();
 
 // ---- Load ----
 
@@ -286,6 +307,95 @@ pub fn load(data_dir: &Path) {
         println!("Loaded {} talent trees", map.len());
         let _ = TALENT_TREES.set(map);
     }
+
+    // item-conversions.json — catalyst tier items
+    let conversions_path = data_dir.join("item-conversions.json");
+    if conversions_path.exists() {
+        let data: HashMap<String, Value> = serde_json::from_reader(std::io::BufReader::new(
+            fs::File::open(&conversions_path).unwrap(),
+        ))
+        .unwrap_or_default();
+
+        // Find the latest conversion group (highest numeric key)
+        let latest_group = data
+            .iter()
+            .filter_map(|(k, _)| k.parse::<u64>().ok())
+            .max();
+
+        if let Some(group_id) = latest_group {
+            if let Some(group) = data.get(&group_id.to_string()) {
+                let mut tier_items: HashMap<(u64, u64), CatalystTierItem> = HashMap::new();
+                let mut tier_item_ids: HashSet<u64> = HashSet::new();
+
+                if let Some(items) = group.get("items").and_then(|v| v.as_array()) {
+                    for item in items {
+                        // Only tier items have itemSetId
+                        if item.get("itemSetId").and_then(|v| v.as_u64()).is_none() {
+                            continue;
+                        }
+                        let item_id = match item.get("id").and_then(|v| v.as_u64()) {
+                            Some(id) => id,
+                            None => continue,
+                        };
+                        let mut inv_type = match item.get("inventoryType").and_then(|v| v.as_u64()) {
+                            Some(t) => t,
+                            None => continue,
+                        };
+                        // Normalize robe (20) to chest (5)
+                        if inv_type == 20 {
+                            inv_type = 5;
+                        }
+                        let name = item
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let icon = item
+                            .get("icon")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let classes = item
+                            .get("allowableClasses")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| arr.iter().filter_map(|v| v.as_u64()).collect::<Vec<_>>())
+                            .unwrap_or_default();
+
+                        tier_item_ids.insert(item_id);
+                        for class_id in &classes {
+                            tier_items.insert(
+                                (*class_id, inv_type),
+                                CatalystTierItem {
+                                    item_id,
+                                    name: name.clone(),
+                                    icon: icon.clone(),
+                                },
+                            );
+                        }
+                    }
+                }
+
+                // Determine catalyst currency ID from season config or default
+                // Current season: 3378 (Midnight Catalyst)
+                let catalyst_currency_id = season_cfg()
+                    .get("catalyst_currency_id")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(3378);
+
+                println!(
+                    "Loaded {} catalyst tier items (group {}, currency {})",
+                    tier_items.len(),
+                    group_id,
+                    catalyst_currency_id
+                );
+                let _ = CATALYST.set(CatalystData {
+                    tier_items,
+                    tier_item_ids,
+                    catalyst_currency_id,
+                });
+            }
+        }
+    }
 }
 
 // ---- Accessors ----
@@ -340,6 +450,58 @@ pub fn talent_trees_for_class(spec_id: u64) -> Vec<&'static Value> {
         .values()
         .filter(|t| t.get("classId").and_then(|v| v.as_u64()) == Some(class_id))
         .collect()
+}
+
+/// Look up the catalyst tier item for a given WoW class ID and inventory type.
+/// Returns None if catalyst data isn't loaded or no tier item exists for that combo.
+pub fn catalyst_tier_item(class_id: u64, inv_type: u64) -> Option<&'static CatalystTierItem> {
+    let cat = CATALYST.get()?;
+    // Normalize robe (20) → chest (5)
+    let inv = if inv_type == 20 { 5 } else { inv_type };
+    cat.tier_items.get(&(class_id, inv))
+}
+
+/// Check if an item_id is a catalyst tier piece.
+pub fn is_catalyst_tier_item(item_id: u64) -> bool {
+    CATALYST
+        .get()
+        .map(|c| c.tier_item_ids.contains(&item_id))
+        .unwrap_or(false)
+}
+
+/// Filter bonus_ids to keep only those that set item level (have `itemLevel` in bonuses.json).
+pub fn filter_ilevel_bonus_ids(bonus_ids: &[u64]) -> Vec<u64> {
+    let bonuses = match BONUSES.get() {
+        Some(b) => b,
+        None => return vec![],
+    };
+    bonus_ids
+        .iter()
+        .filter(|&&bid| {
+            bonuses
+                .get(&bid)
+                .and_then(|b| b.get("itemLevel"))
+                .is_some()
+        })
+        .copied()
+        .collect()
+}
+
+/// Tier set marker bonus ID (13575 for current season).
+/// Added to catalyst items that are part of a tier set.
+const TIER_SET_BONUS_ID: u64 = 13575;
+
+/// Get the tier set marker bonus ID.
+pub fn tier_set_bonus_id() -> u64 {
+    TIER_SET_BONUS_ID
+}
+
+/// Get the catalyst currency ID for the current season (e.g. 3378).
+pub fn catalyst_currency_id() -> u64 {
+    CATALYST
+        .get()
+        .map(|c| c.catalyst_currency_id)
+        .unwrap_or(3378)
 }
 
 pub fn upgrade_tracks() -> Option<&'static HashMap<UpgradeTrackKey, UpgradeTrackValue>> {

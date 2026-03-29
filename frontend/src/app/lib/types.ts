@@ -23,6 +23,7 @@ export interface ResolvedItem {
   enchant_name: string;
   gem_name: string;
   gem_icon: string;
+  is_catalyst?: boolean;
 }
 
 export interface SlotResolution {
@@ -48,6 +49,7 @@ export interface ResolveGearResponse {
   slots: Record<string, SlotResolution>;
   excluded: { uid: string; item_id: number; name: string; reason: string }[];
   talent_loadouts: TalentLoadout[];
+  catalyst_charges?: number;
 }
 
 // Fight scenario for multi-sim

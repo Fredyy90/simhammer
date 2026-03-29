@@ -18,25 +18,30 @@ export default function TopGearPage() {
   >([]);
   const [maxUpgrade, setMaxUpgrade] = useState(false);
   const [copyEnchants, setCopyEnchants] = useState(true);
+  const [catalyst, setCatalyst] = useState(false);
+  const [catalystCharges, setCatalystCharges] = useState<number | null>(null);
   const [resolving, setResolving] = useState(false);
   const [comboCount, setComboCount] = useState(0);
   const [comboError, setComboError] = useState('');
   const prevInputRef = useRef('');
   const prevUpgradeRef = useRef(false);
+  const prevCatalystRef = useRef(false);
 
-  // Resolve gear when simc input or maxUpgrade changes
+  // Resolve gear when simc input, maxUpgrade, or catalyst changes
   useEffect(() => {
     const trimmed = simcInput.trim();
     const inputChanged = trimmed !== prevInputRef.current;
     const upgradeChanged = maxUpgrade !== prevUpgradeRef.current;
+    const catalystChanged = catalyst !== prevCatalystRef.current;
 
-    if (!inputChanged && !upgradeChanged) return;
+    if (!inputChanged && !upgradeChanged && !catalystChanged) return;
 
     if (trimmed.length < 10) {
       setResolved(null);
       setSelectedUids({});
       prevInputRef.current = trimmed;
       prevUpgradeRef.current = maxUpgrade;
+      prevCatalystRef.current = catalyst;
       return;
     }
 
@@ -44,12 +49,13 @@ export default function TopGearPage() {
       async () => {
         prevInputRef.current = trimmed;
         prevUpgradeRef.current = maxUpgrade;
+        prevCatalystRef.current = catalyst;
         setResolving(true);
         try {
           const res = await fetch(`${API_URL}/api/gear/resolve`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ simc_input: simcInput, max_upgrade: maxUpgrade }),
+            body: JSON.stringify({ simc_input: simcInput, max_upgrade: maxUpgrade, catalyst }),
           });
           if (!res.ok) {
             setResolved(null);
@@ -70,6 +76,10 @@ export default function TopGearPage() {
 
           setResolved(data);
 
+          if (inputChanged && data.catalyst_charges != null) {
+            setCatalystCharges(data.catalyst_charges);
+          }
+
           if (inputChanged) {
             setSelectedUids({});
             setLocalItems([]);
@@ -84,7 +94,7 @@ export default function TopGearPage() {
       inputChanged ? 300 : 0
     );
     return () => clearTimeout(timer);
-  }, [simcInput, maxUpgrade]);
+  }, [simcInput, maxUpgrade, catalyst]);
 
   function buildSubmitInput(): string {
     let result = simcInput;
@@ -143,6 +153,8 @@ export default function TopGearPage() {
             copy_enchants: copyEnchants,
             ...(maxCombinations != null ? { max_combinations: maxCombinations } : {}),
             ...(talentBuilds.length > 1 ? { talent_builds: talentBuilds.map(tb => ({ name: tb.name, talent_string: tb.talentString })) } : {}),
+            catalyst,
+            ...(catalyst && catalystCharges != null ? { catalyst_charges: catalystCharges } : {}),
           }),
           signal: controller.signal,
         });
@@ -165,7 +177,7 @@ export default function TopGearPage() {
     return () => {
       controller.abort();
     };
-  }, [selectedUids, resolved, localItems, maxUpgrade, copyEnchants, maxCombinations, talentBuilds]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedUids, resolved, localItems, maxUpgrade, copyEnchants, maxCombinations, talentBuilds, catalyst, catalystCharges]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const buildPayload = useCallback(
     () => ({
@@ -176,9 +188,11 @@ export default function TopGearPage() {
       copy_enchants: copyEnchants,
       ...(maxCombinations != null ? { max_combinations: maxCombinations } : {}),
       ...(talentBuilds.length > 1 ? { talent_builds: talentBuilds.map(tb => ({ name: tb.name, talent_string: tb.talentString })) } : {}),
+      catalyst,
+      ...(catalyst && catalystCharges != null ? { catalyst_charges: catalystCharges } : {}),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [simcInput, localItems, selectedUids, maxUpgrade, copyEnchants, maxCombinations, talentBuilds]
+    [simcInput, localItems, selectedUids, maxUpgrade, copyEnchants, maxCombinations, talentBuilds, catalyst, catalystCharges]
   );
 
   const validate = useCallback(() => {
@@ -200,6 +214,8 @@ export default function TopGearPage() {
           : 'Paste your SimC addon export above to see gear options.'}
       </p>
     );
+  } else {
+    console.log(resolved)
   }
 
   return (
@@ -245,6 +261,44 @@ export default function TopGearPage() {
             <p className="text-[11px] text-gray-600">Simulate all items at max upgrade level</p>
           </div>
         </label>
+        {catalystCharges != null && catalystCharges > 0 && (
+          <div className="group flex flex-1 items-center gap-3">
+            <div
+              className={`relative h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors ${
+                catalyst ? 'bg-purple-500' : 'border border-border bg-surface-2'
+              }`}
+              onClick={() => setCatalyst(!catalyst)}
+            >
+              <div
+                className={`absolute top-0.5 h-4 w-4 rounded-full transition-all ${
+                  catalyst ? 'left-[18px] bg-white' : 'left-0.5 bg-gray-500'
+                }`}
+              />
+            </div>
+            <div className="flex-1 cursor-pointer" onClick={() => setCatalyst(!catalyst)}>
+              <span className="text-[13px] font-medium text-gray-300 transition-colors group-hover:text-white">
+                Revival Catalyst
+              </span>
+              <p className="text-[11px] text-gray-600">Generate tier alternatives</p>
+            </div>
+            {catalyst && (
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  min={0}
+                  max={10}
+                  value={catalystCharges}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10);
+                    if (!isNaN(v) && v >= 0) setCatalystCharges(v);
+                  }}
+                  className="input-field !w-12 !px-1.5 !py-0.5 text-center !text-[11px]"
+                />
+                <span className="text-[11px] text-gray-500">charges</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <TopGearItemSelector

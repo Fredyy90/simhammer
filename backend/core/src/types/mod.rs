@@ -121,6 +121,9 @@ pub struct ResolvedItem {
     pub gem_name: String,
     /// Gem icon (empty if none).
     pub gem_icon: String,
+    /// Whether this item is a catalyst-generated tier alternative.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_catalyst: bool,
 }
 
 // ---- Slot Resolution ----
@@ -140,6 +143,9 @@ pub struct ResolveGearResponse {
     pub slots: std::collections::HashMap<String, SlotResolution>,
     pub excluded: Vec<ExcludedItem>,
     pub talent_loadouts: Vec<TalentLoadout>,
+    /// Number of catalyst charges available (None if not detected in addon export).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub catalyst_charges: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

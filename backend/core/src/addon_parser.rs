@@ -254,3 +254,28 @@ pub fn parse_upgrade_currencies(simc_input: &str) -> HashMap<u64, u64> {
     }
     currencies
 }
+
+/// Extract catalyst charge count from a SimC addon string.
+///
+/// Parses lines like: `# catalyst_currencies=3269:8/3378:5/2813:8/3116:8`
+/// Returns the charge count for the given currency_id (e.g. 3378 for Midnight Catalyst).
+pub fn parse_catalyst_charges(simc_input: &str, currency_id: u64) -> Option<u32> {
+    let line_re = Regex::new(r"(?i)^#?\s*catalyst_currencies\s*=\s*(.+)$").unwrap();
+    for line in simc_input.lines() {
+        if let Some(caps) = line_re.captures(line.trim()) {
+            let rhs = &caps[1];
+            for entry in rhs.split('/') {
+                let parts: Vec<&str> = entry.split(':').collect();
+                if parts.len() == 2 {
+                    let id: u64 = parts[0].trim().parse().unwrap_or(0);
+                    let count: u32 = parts[1].trim().parse().unwrap_or(0);
+                    if id == currency_id {
+                        return Some(count);
+                    }
+                }
+            }
+            break;
+        }
+    }
+    None
+}

@@ -261,6 +261,7 @@ export default function TopGearItemSelector({
   function itemDetails(item: ResolvedItem): { text: string; color?: string }[] {
     const parts: { text: string; color?: string }[] = [];
     if (item.origin === 'vault') parts.push({ text: 'Great Vault', color: 'text-amber-400/80' });
+    if (item.is_catalyst) parts.push({ text: 'Catalyst', color: 'text-purple-400/80' });
     if (item.tag) parts.push({ text: item.tag });
     if (item.upgrade) parts.push({ text: item.upgrade });
     if (item.gem_name) {
@@ -356,6 +357,7 @@ export default function TopGearItemSelector({
                 checked={isItemSelected(item, group)}
                 onToggle={() => toggleItem(item, group)}
                 vault={item.origin === 'vault'}
+                catalyst={item.is_catalyst}
                 href={item.item_id > 0 ? getWowheadUrl(item.item_id) : undefined}
                 wowheadData={item.item_id > 0 ? getWowheadData(item) : undefined}
               >

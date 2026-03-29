@@ -139,6 +139,7 @@ fn enrich(item: &RawParsedItem, slot: &str) -> ResolvedItem {
         enchant_name,
         gem_name,
         gem_icon,
+        is_catalyst: false,
     }
 }
 
@@ -168,6 +169,19 @@ fn eligible_slots(item: &RawParsedItem, spec: &str) -> Vec<String> {
 
 /// Resolve a flat list of parsed items into a slot-organized, enriched gear set.
 pub fn resolve_gear(parse_result: &ParseResult) -> ResolveGearResponse {
+    resolve_gear_impl(parse_result, None)
+}
+
+/// Resolve gear with optional catalyst alternative generation.
+/// `catalyst_charges` should be pre-parsed from the raw simc input.
+pub fn resolve_gear_with_catalyst(
+    parse_result: &ParseResult,
+    catalyst_charges: Option<u32>,
+) -> ResolveGearResponse {
+    resolve_gear_impl(parse_result, catalyst_charges)
+}
+
+fn resolve_gear_impl(parse_result: &ParseResult, catalyst_charges: Option<u32>) -> ResolveGearResponse {
     let character = &parse_result.character;
     let spec = character.spec.as_deref().unwrap_or("");
     let class_name = character.class_name.as_deref().unwrap_or("");
@@ -363,6 +377,13 @@ pub fn resolve_gear(parse_result: &ParseResult) -> ResolveGearResponse {
             .sort_by(|a, b| b.ilevel.cmp(&a.ilevel));
     }
 
+    // Catalyst pass: generate tier alternatives for non-tier items in tier slots
+    if catalyst_charges.is_some() {
+        if let Some(class_id) = class_data::class_wow_id(class_name) {
+            generate_catalyst_alternatives(&mut slots, class_id);
+        }
+    }
+
     ResolveGearResponse {
         character: CharacterResolveInfo {
             class_name: character.class_name.clone(),
@@ -373,5 +394,135 @@ pub fn resolve_gear(parse_result: &ParseResult) -> ResolveGearResponse {
         slots,
         excluded,
         talent_loadouts: parse_result.talent_loadouts.clone(),
+        catalyst_charges: catalyst_charges,
+    }
+}
+
+/// Tier slots eligible for catalyst conversion.
+const TIER_SLOTS: &[&str] = &["head", "shoulder", "chest", "hands", "legs"];
+
+/// Inventory type for each tier slot (used for catalyst tier item lookup).
+fn slot_to_inv_type(slot: &str) -> Option<u64> {
+    match slot {
+        "head" => Some(1),
+        "shoulder" => Some(3),
+        "chest" => Some(5),
+        "hands" => Some(10),
+        "legs" => Some(7),
+        _ => None,
+    }
+}
+
+/// Generate catalyzed tier alternatives for non-tier items in tier slots.
+/// Creates one catalyst copy per slot using the highest-ilevel non-tier item.
+fn generate_catalyst_alternatives(
+    slots: &mut HashMap<String, SlotResolution>,
+    wow_class_id: u64,
+) {
+    for &tier_slot in TIER_SLOTS {
+        let inv_type = match slot_to_inv_type(tier_slot) {
+            Some(t) => t,
+            None => continue,
+        };
+        let tier_info = match item_db::catalyst_tier_item(wow_class_id, inv_type) {
+            Some(t) => t,
+            None => continue,
+        };
+
+        let slot_res = match slots.get(tier_slot) {
+            Some(s) => s,
+            None => continue,
+        };
+
+        // Skip if the equipped item is already this tier piece
+        if let Some(ref eq) = slot_res.equipped {
+            if eq.item_id == tier_info.item_id || item_db::is_catalyst_tier_item(eq.item_id) {
+                continue;
+            }
+        }
+
+        // Use the equipped item as the catalyst source (highest ilevel in the slot)
+        let source = match &slot_res.equipped {
+            Some(eq) => eq.clone(),
+            None => continue,
+        };
+
+        let tier_item_id = tier_info.item_id;
+
+        // Build catalyst bonus_ids: keep only ilevel-related bonuses from the source,
+        // then add the tier set marker bonus (13575) for tier set items.
+        let mut catalyst_bonus_ids = item_db::filter_ilevel_bonus_ids(&source.bonus_ids);
+        // All items from item-conversions with itemSetId are tier set pieces
+        catalyst_bonus_ids.push(item_db::tier_set_bonus_id());
+        catalyst_bonus_ids.sort();
+
+        // Build simc_string with tier item_id and catalyst bonus_ids
+        let bonus_str = catalyst_bonus_ids
+            .iter()
+            .map(|b| b.to_string())
+            .collect::<Vec<_>>()
+            .join("/");
+        let mut simc_parts = vec![format!(",id={}", tier_item_id)];
+        if !bonus_str.is_empty() {
+            simc_parts.push(format!(",bonus_id={}", bonus_str));
+        }
+        if source.enchant_id > 0 {
+            simc_parts.push(format!(",enchant_id={}", source.enchant_id));
+        }
+        if source.gem_id > 0 {
+            simc_parts.push(format!(",gem_id={}", source.gem_id));
+        }
+        let new_simc = simc_parts.join("");
+
+        // Enrich from the tier item with catalyst bonus_ids
+        let tier_db_info = item_db::get_item_info(tier_item_id, Some(&catalyst_bonus_ids));
+        let (name, icon, quality, tag, upgrade) = if let Some(ref info) = tier_db_info {
+            (
+                info.get("name").and_then(|n| n.as_str()).unwrap_or(&tier_info.name).to_string(),
+                info.get("icon").and_then(|i| i.as_str()).unwrap_or(&tier_info.icon).to_string(),
+                info.get("quality").and_then(|q| q.as_u64()).unwrap_or(4),
+                info.get("tag").and_then(|t| t.as_str()).unwrap_or("").to_string(),
+                info.get("upgrade").and_then(|u| u.as_str()).unwrap_or("").to_string(),
+            )
+        } else {
+            (tier_info.name.clone(), tier_info.icon.clone(), 4, String::new(), String::new())
+        };
+
+        // Use the source item's ilevel — it's already correctly resolved
+        let ilevel = source.ilevel;
+
+        // UID must match the format used by profileset_generator::make_item_uid:
+        // "item_id:sorted_bonus_ids:origin:slot"
+        let bonus_key = catalyst_bonus_ids
+            .iter()
+            .map(|b| b.to_string())
+            .collect::<Vec<_>>()
+            .join(":");
+        let uid = format!("{}:{}:{}:{}", tier_item_id, bonus_key, source.origin.as_str(), tier_slot);
+
+        let catalyst_item = ResolvedItem {
+            uid,
+            slot: tier_slot.to_string(),
+            item_id: tier_item_id,
+            ilevel,
+            simc_string: new_simc,
+            origin: source.origin,
+            bonus_ids: catalyst_bonus_ids,
+            enchant_id: source.enchant_id,
+            gem_id: source.gem_id,
+            name,
+            icon,
+            quality,
+            quality_color: class_data::quality_color(quality).to_string(),
+            tag,
+            upgrade,
+            sockets: 0,
+            enchant_name: source.enchant_name.clone(),
+            gem_name: source.gem_name.clone(),
+            gem_icon: source.gem_icon.clone(),
+            is_catalyst: true,
+        };
+
+        slots.get_mut(tier_slot).unwrap().alternatives.push(catalyst_item);
     }
 }

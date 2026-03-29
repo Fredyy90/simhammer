@@ -105,6 +105,10 @@ pub struct TopGearRequest {
     pub max_combinations: Option<usize>,
     #[serde(default)]
     pub talent_builds: Vec<TalentBuild>,
+    #[serde(default)]
+    pub catalyst: bool,
+    #[serde(default)]
+    pub catalyst_charges: Option<u32>,
     #[serde(flatten)]
     pub options: SimOptions,
 }
@@ -153,6 +157,8 @@ pub(super) struct ResolveGearRequest {
     pub simc_input: String,
     #[serde(default)]
     pub max_upgrade: bool,
+    #[serde(default)]
+    pub catalyst: bool,
 }
 
 #[cfg(not(feature = "desktop"))]

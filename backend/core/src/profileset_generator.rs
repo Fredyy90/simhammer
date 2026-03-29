@@ -85,6 +85,7 @@ pub fn generate_top_gear_input(
         selected_items,
         max_combos_override,
         &[],
+        None,
     )
 }
 
@@ -96,6 +97,7 @@ pub fn generate_top_gear_input_with_talents(
     selected_items: &HashMap<String, Vec<String>>,
     max_combos_override: Option<usize>,
     talent_builds: &[(String, String)],
+    catalyst_charges: Option<u32>,
 ) -> ProfilesetResult {
     // Extract base profile info (non-gear lines) and equipped gear
     let (base_lines, equipped_gear, talents_string, spec) = parse_base_profile(base_profile);
@@ -139,6 +141,7 @@ pub fn generate_top_gear_input_with_talents(
 
     // Filter invalid combos and build gear sets
     let mut valid_combos: Vec<HashMap<String, Value>> = Vec::new();
+    eprintln!("[catalyst] charges={:?}, varying_slots={:?}", catalyst_charges, varying_slots);
 
     for combo_indices in &all_combos {
         // Build full gear set: start with equipped, override varying slots
@@ -178,6 +181,15 @@ pub fn generate_top_gear_input_with_talents(
         // Weapon constraint: two-hander in main_hand cannot pair with off_hand
         if !validate_weapon_constraint(&gear_set, &spec) {
             continue;
+        }
+
+        // Catalyst constraint: max N catalyst items per combination
+        if let Some(charges) = catalyst_charges {
+            let cat_count = gear_set.values().filter(|it| it.get("is_catalyst").and_then(|v| v.as_bool()).unwrap_or(false)).count();
+            eprintln!("[catalyst] combo: cat_count={}, charges={}", cat_count, charges);
+            if !validate_catalyst_constraint(&gear_set, charges) {
+                continue;
+            }
         }
 
         // Check if this is identical to baseline (all equipped)
@@ -513,7 +525,7 @@ fn parse_base_profile(
 }
 
 fn item_meta(item: &Value, slot: &str) -> Value {
-    json!({
+    let mut meta = json!({
         "slot": slot,
         "item_id": item.get("item_id").and_then(|v| v.as_u64()).unwrap_or(0),
         "ilevel": item.get("ilevel").and_then(|v| v.as_u64()).unwrap_or(0),
@@ -523,7 +535,11 @@ fn item_meta(item: &Value, slot: &str) -> Value {
         "gem_id": item.get("gem_id").and_then(|v| v.as_u64()).unwrap_or(0),
         "is_kept": item.get("is_equipped").and_then(|v| v.as_bool()).unwrap_or(false),
         "origin": item.get("origin").and_then(|v| v.as_str()).unwrap_or("bags"),
-    })
+    });
+    if item.get("is_catalyst").and_then(|v| v.as_bool()).unwrap_or(false) {
+        meta["is_catalyst"] = json!(true);
+    }
+    meta
 }
 
 // can_dual_wield and inv_type_to_slots now live in types::class_data
@@ -874,6 +890,19 @@ fn validate_vault_constraint(gear_set: &HashMap<String, Value>) -> bool {
     true
 }
 
+/// Catalyst constraint: at most `max_charges` catalyst items per combination.
+fn validate_catalyst_constraint(gear_set: &HashMap<String, Value>, max_charges: u32) -> bool {
+    let count = gear_set
+        .values()
+        .filter(|item| {
+            item.get("is_catalyst")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        })
+        .count();
+    count as u32 <= max_charges
+}
+
 /// Weapon constraint: a two-hander (inventory_type 17) in main_hand cannot be
 /// paired with an off_hand item, unless the spec is fury (Titan's Grip).
 fn validate_weapon_constraint(gear_set: &HashMap<String, Value>, spec: &str) -> bool {
@@ -922,6 +951,7 @@ pub fn count_top_gear_combos(
         selected_items,
         max_combos_override,
         0,
+        None,
     )
 }
 
@@ -931,10 +961,11 @@ pub fn count_top_gear_combos_with_talents(
     selected_items: &HashMap<String, Vec<String>>,
     max_combos_override: Option<usize>,
     talent_build_count: usize,
+    catalyst_charges: Option<u32>,
 ) -> Result<usize, String> {
     let (_, _, _, spec) = parse_base_profile(base_profile);
     let slot_item_lists = build_slot_candidates(base_profile, items_by_slot, selected_items);
-    let gear_combos = count_valid_combos(&slot_item_lists, None, &spec)?;
+    let gear_combos = count_valid_combos(&slot_item_lists, None, &spec, catalyst_charges)?;
     let total = if talent_build_count > 1 {
         // Each talent build gets all gear combos + baseline, minus 1 for base actor
         (gear_combos + 1) * talent_build_count - 1
@@ -1035,6 +1066,7 @@ fn count_valid_combos(
     slot_item_lists: &HashMap<String, Vec<Value>>,
     max_combos_override: Option<usize>,
     spec: &str,
+    catalyst_charges: Option<u32>,
 ) -> Result<usize, String> {
     let mut varying_slots: Vec<String> = slot_item_lists
         .iter()
@@ -1109,6 +1141,11 @@ fn count_valid_combos(
         }
         if !validate_weapon_constraint(&gear_set, spec) {
             continue;
+        }
+        if let Some(charges) = catalyst_charges {
+            if !validate_catalyst_constraint(&gear_set, charges) {
+                continue;
+            }
         }
 
         let is_baseline = GEAR_SLOTS.iter().all(|slot| {

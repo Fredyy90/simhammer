@@ -109,7 +109,15 @@ pub(super) async fn create_top_gear_sim(
     simc_input = crate::talent_normalize::normalize_simc_talents(&simc_input);
 
     let parse_result = addon_parser::parse_simc_input(&simc_input);
-    let resolved = gear_resolver::resolve_gear(&parse_result);
+    let resolved = if req.catalyst {
+        let currency_id = crate::item_db::catalyst_currency_id();
+        let charges = req.catalyst_charges.or_else(|| {
+            crate::addon_parser::parse_catalyst_charges(&req.simc_input, currency_id)
+        });
+        gear_resolver::resolve_gear_with_catalyst(&parse_result, charges)
+    } else {
+        gear_resolver::resolve_gear(&parse_result)
+    };
     let base_profile = resolved.base_profile.clone();
 
     let mut items_by_slot: HashMap<String, Vec<serde_json::Value>> =
@@ -142,6 +150,16 @@ pub(super) async fn create_top_gear_sim(
         })
         .collect();
 
+    // Use frontend-provided catalyst charges, or parse from simc input
+    let catalyst_charges = if req.catalyst {
+        req.catalyst_charges.or_else(|| {
+            let currency_id = crate::item_db::catalyst_currency_id();
+            crate::addon_parser::parse_catalyst_charges(&req.simc_input, currency_id)
+        })
+    } else {
+        None
+    };
+
     let (generated_input, combo_count, combo_metadata) =
         match profileset_generator::generate_top_gear_input_with_talents(
             &base_profile,
@@ -149,6 +167,7 @@ pub(super) async fn create_top_gear_sim(
             &req.selected_items,
             req.max_combinations,
             &talent_builds,
+            catalyst_charges,
         ) {
             Ok(r) => r,
             Err(e) => {
@@ -217,7 +236,15 @@ pub(super) async fn get_top_gear_combo_count(req: web::Json<TopGearRequest>) -> 
     simc_input = crate::talent_normalize::normalize_simc_talents(&simc_input);
 
     let parse_result = addon_parser::parse_simc_input(&simc_input);
-    let resolved = gear_resolver::resolve_gear(&parse_result);
+    let resolved = if req.catalyst {
+        let currency_id = crate::item_db::catalyst_currency_id();
+        let charges = req.catalyst_charges.or_else(|| {
+            crate::addon_parser::parse_catalyst_charges(&req.simc_input, currency_id)
+        });
+        gear_resolver::resolve_gear_with_catalyst(&parse_result, charges)
+    } else {
+        gear_resolver::resolve_gear(&parse_result)
+    };
     let base_profile = resolved.base_profile.clone();
 
     let mut items_by_slot: HashMap<String, Vec<serde_json::Value>> =
@@ -234,12 +261,22 @@ pub(super) async fn get_top_gear_combo_count(req: web::Json<TopGearRequest>) -> 
         items_by_slot = game_data::apply_copy_enchants(&items_by_slot);
     }
 
+    let catalyst_charges = if req.catalyst {
+        req.catalyst_charges.or_else(|| {
+            let currency_id = crate::item_db::catalyst_currency_id();
+            crate::addon_parser::parse_catalyst_charges(&req.simc_input, currency_id)
+        })
+    } else {
+        None
+    };
+
     match profileset_generator::count_top_gear_combos_with_talents(
         &base_profile,
         &items_by_slot,
         &req.selected_items,
         req.max_combinations,
         req.talent_builds.len(),
+        catalyst_charges,
     ) {
         Ok(count) => HttpResponse::Ok().json(json!({ "combo_count": count })),
         Err(e) => {
