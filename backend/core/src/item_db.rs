@@ -27,6 +27,7 @@ static UPGRADE_STEP_COSTS: OnceCell<HashMap<u64, HashMap<u64, u64>>> = OnceCell:
 /// Currency metadata: currency_id → (name, icon)
 static CURRENCY_INFO: OnceCell<HashMap<u64, (String, String)>> = OnceCell::new();
 static SEASON_CONFIG: OnceCell<Value> = OnceCell::new();
+static TALENT_TREES: OnceCell<HashMap<u64, Value>> = OnceCell::new();
 
 // ---- Load ----
 
@@ -267,6 +268,24 @@ pub fn load(data_dir: &Path) {
         println!("Loaded season config: {}", name);
         let _ = SEASON_CONFIG.set(cfg);
     }
+
+    // talents.json
+    let talents_path = data_dir.join("talents.json");
+    if talents_path.exists() {
+        let data: Vec<Value> = serde_json::from_reader(std::io::BufReader::new(
+            fs::File::open(&talents_path).unwrap(),
+        ))
+        .unwrap_or_default();
+        let map: HashMap<u64, Value> = data
+            .into_iter()
+            .filter_map(|v| {
+                let spec_id = v.get("specId")?.as_u64()?;
+                Some((spec_id, v))
+            })
+            .collect();
+        println!("Loaded {} talent trees", map.len());
+        let _ = TALENT_TREES.set(map);
+    }
 }
 
 // ---- Accessors ----
@@ -297,6 +316,30 @@ pub fn instances() -> &'static Vec<Value> {
 
 pub fn drops_by_encounter() -> &'static HashMap<i64, Vec<Value>> {
     DROPS_BY_ENCOUNTER.get().expect("Game data not loaded")
+}
+
+pub fn talent_tree(spec_id: u64) -> Option<&'static Value> {
+    TALENT_TREES.get()?.get(&spec_id)
+}
+
+/// Return all talent trees that share the same classId as the given specId.
+pub fn talent_trees_for_class(spec_id: u64) -> Vec<&'static Value> {
+    let trees = match TALENT_TREES.get() {
+        Some(t) => t,
+        None => return Vec::new(),
+    };
+    let class_id = match trees.get(&spec_id) {
+        Some(t) => t.get("classId").and_then(|v| v.as_u64()),
+        None => return Vec::new(),
+    };
+    let class_id = match class_id {
+        Some(id) => id,
+        None => return Vec::new(),
+    };
+    trees
+        .values()
+        .filter(|t| t.get("classId").and_then(|v| v.as_u64()) == Some(class_id))
+        .collect()
 }
 
 pub fn upgrade_tracks() -> Option<&'static HashMap<UpgradeTrackKey, UpgradeTrackValue>> {
