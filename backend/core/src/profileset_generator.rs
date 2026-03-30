@@ -357,17 +357,8 @@ pub fn generate_top_gear_input_with_talents(
                         if *slot == "main_hand" {
                             let item_id =
                                 item.get("item_id").and_then(|v| v.as_u64()).unwrap_or(0);
-                            let bonus_ids: Vec<u64> = item
-                                .get("bonus_ids")
-                                .and_then(|v| v.as_array())
-                                .map(|arr| arr.iter().filter_map(|b| b.as_u64()).collect())
-                                .unwrap_or_default();
                             let inv_type =
-                                game_data::get_item_info(item_id, Some(&bonus_ids))
-                                    .and_then(|info| {
-                                        info.get("inventory_type").and_then(|v| v.as_u64())
-                                    })
-                                    .unwrap_or(0);
+                                game_data::get_inventory_type(item_id).unwrap_or(0);
                             if inv_type == 17 && spec != "fury" {
                                 combo_mh_is_two_hand = true;
                             }
@@ -916,14 +907,7 @@ fn validate_weapon_constraint(gear_set: &HashMap<String, Value>, spec: &str) -> 
     if mh_item_id == 0 {
         return true;
     }
-    let mh_bonus_ids: Vec<u64> = mh
-        .get("bonus_ids")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|b| b.as_u64()).collect())
-        .unwrap_or_default();
-    let inv_type = game_data::get_item_info(mh_item_id, Some(&mh_bonus_ids))
-        .and_then(|info| info.get("inventory_type").and_then(|v| v.as_u64()))
-        .unwrap_or(0);
+    let inv_type = game_data::get_inventory_type(mh_item_id).unwrap_or(0);
     if inv_type != 17 {
         return true;
     }

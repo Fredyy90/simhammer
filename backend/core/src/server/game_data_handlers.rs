@@ -28,16 +28,8 @@ pub(super) async fn get_item_info(
         Some(bonus_list.as_slice())
     };
 
-    let result = game_data::get_item_info(item_id, bonus_ref).unwrap_or_else(|| {
-        json!({
-            "item_id": item_id,
-            "name": format!("Item {}", item_id),
-            "quality": 1,
-            "quality_name": "common",
-            "icon": "inv_misc_questionmark",
-            "ilevel": 0,
-        })
-    });
+    let result = game_data::get_item_info(item_id, bonus_ref)
+        .unwrap_or_else(|| crate::types::ItemInfo::unknown(item_id));
 
     HttpResponse::Ok().json(result)
 }
@@ -82,23 +74,15 @@ pub(super) async fn get_item_info_batch(req: web::Json<ItemInfoBatchRequest>) ->
         }
     }
 
-    let mut results: HashMap<String, Value> = HashMap::new();
+    let mut results: HashMap<String, crate::types::ItemInfo> = HashMap::new();
     for (iid, bonus) in &unique_items {
         let bonus_ref = if bonus.is_empty() {
             None
         } else {
             Some(bonus.as_slice())
         };
-        let info = game_data::get_item_info(*iid, bonus_ref).unwrap_or_else(|| {
-            json!({
-                "item_id": iid,
-                "name": format!("Item {}", iid),
-                "quality": 1,
-                "quality_name": "common",
-                "icon": "inv_misc_questionmark",
-                "ilevel": 0,
-            })
-        });
+        let info = game_data::get_item_info(*iid, bonus_ref)
+            .unwrap_or_else(|| crate::types::ItemInfo::unknown(*iid));
         results.insert(iid.to_string(), info);
     }
 
@@ -130,7 +114,7 @@ pub(super) async fn get_max_upgrade_ilevels(body: web::Json<Vec<Value>>) -> Http
             .unwrap_or_default();
         let upgraded = game_data::upgrade_bonus_ids_to_max(&bonus_ids);
         if let Some(info) = game_data::get_item_info(item_id, Some(&upgraded)) {
-            let ilevel = info.get("ilevel").and_then(|v| v.as_u64()).unwrap_or(0);
+            let ilevel = info.ilevel;
             let mut sorted_ids = bonus_ids.clone();
             sorted_ids.sort();
             let key = format!(

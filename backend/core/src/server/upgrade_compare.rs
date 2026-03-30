@@ -146,9 +146,7 @@ fn prepare_upgrade_compare(
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0);
                 if let Some(info) = game_data::get_item_info(item_id, Some(&new_bonus_ids)) {
-                    if let Some(ilvl) = info.get("ilevel").and_then(|v| v.as_u64()) {
-                        upgraded["ilevel"] = json!(ilvl);
-                    }
+                    upgraded["ilevel"] = json!(info.ilevel);
                 }
             }
 

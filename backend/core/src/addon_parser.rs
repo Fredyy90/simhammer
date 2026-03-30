@@ -65,7 +65,7 @@ fn parse_item_props(item_str: &str) -> ItemProps {
 pub fn parse_simc_input(simc_input: &str) -> ParseResult {
     let slot_pattern = format!(r"^({})=(.*)", GEAR_SLOTS.join("|"));
     let slot_re = Regex::new(&slot_pattern).unwrap();
-    let header_re = Regex::new(r"^#+\s*(.+?)\s*\((\d+)\)\s*$").unwrap();
+    let header_re = Regex::new(r"^#+\s*(.+?)\s*\(?(\d+)\)?\s*$").unwrap();
     let talents_re = Regex::new(r"^talents=(.+)").unwrap();
 
     let character = CharacterInfo {
