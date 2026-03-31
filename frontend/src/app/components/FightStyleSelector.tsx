@@ -4,6 +4,7 @@ const FIGHT_STYLES = [
   { value: 'Patchwerk', label: 'Patchwerk' },
   { value: 'HecticAddCleave', label: 'Hectic Add Cleave' },
   { value: 'LightMovement', label: 'Light Movement' },
+  { value: 'DungeonSlice', label: 'Dungeon Slice' },
 ];
 
 interface FightStyleSelectorProps {
