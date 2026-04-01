@@ -161,6 +161,13 @@ pub(super) struct ResolveGearRequest {
     pub catalyst: bool,
 }
 
+#[derive(Debug, Deserialize)]
+pub(super) struct CatalystConvertRequest {
+    pub class_name: String,
+    pub slot: String,
+    pub item: crate::types::ResolvedItem,
+}
+
 #[cfg(not(feature = "desktop"))]
 #[derive(Debug, Deserialize)]
 pub(super) struct ListSimsQuery {

@@ -163,6 +163,9 @@ pub struct ResolvedItem {
     /// Whether this item is a catalyst-generated tier alternative.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_catalyst: bool,
+    /// Whether this item can be converted via Revival Catalyst.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub can_catalyst: bool,
 }
 
 fn is_zero(v: &u64) -> bool {

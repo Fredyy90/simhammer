@@ -156,6 +156,30 @@ pub(super) async fn resolve_gear(req: web::Json<ResolveGearRequest>) -> HttpResp
     HttpResponse::Ok().json(resolved)
 }
 
+pub(super) async fn catalyst_convert(
+    req: web::Json<super::types::CatalystConvertRequest>,
+) -> HttpResponse {
+    let class_id = match crate::types::class_data::class_wow_id(&req.class_name) {
+        Some(id) => id,
+        None => return HttpResponse::BadRequest().json(json!({"detail": "Unknown class"})),
+    };
+    let inv_type = match gear_resolver::slot_to_inv_type(&req.slot) {
+        Some(t) => t,
+        None => {
+            return HttpResponse::BadRequest().json(json!({"detail": "Slot not eligible for catalyst"}))
+        }
+    };
+    let tier_info = match crate::item_db::catalyst_tier_item(class_id, inv_type) {
+        Some(t) => t,
+        None => {
+            return HttpResponse::BadRequest()
+                .json(json!({"detail": "No catalyst tier item for this class/slot"}))
+        }
+    };
+    let catalyst_item = gear_resolver::build_catalyst_item(&req.item, tier_info, &req.slot);
+    HttpResponse::Ok().json(catalyst_item)
+}
+
 pub(super) async fn get_talent_tree(path: web::Path<u64>) -> HttpResponse {
     let spec_id = path.into_inner();
     let tree = match game_data::talent_tree(spec_id) {

@@ -220,18 +220,6 @@ pub fn generate_top_gear_input_with_talents(
 
         // Catalyst constraint: max N catalyst items per combination
         if let Some(charges) = catalyst_charges {
-            let cat_count = gear_set
-                .values()
-                .filter(|it| {
-                    it.get("is_catalyst")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false)
-                })
-                .count();
-            eprintln!(
-                "[catalyst] combo: cat_count={}, charges={}",
-                cat_count, charges
-            );
             if !validate_catalyst_constraint(&gear_set, charges) {
                 continue;
             }

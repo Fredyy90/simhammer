@@ -160,7 +160,7 @@ export default function TopGearPage() {
                 }
               : {}),
             catalyst,
-            ...(catalyst && catalystCharges != null ? { catalyst_charges: catalystCharges } : {}),
+            ...(catalystCharges != null ? { catalyst_charges: catalystCharges } : {}),
           }),
           signal: controller.signal,
         });
@@ -214,7 +214,7 @@ export default function TopGearPage() {
           }
         : {}),
       catalyst,
-      ...(catalyst && catalystCharges != null ? { catalyst_charges: catalystCharges } : {}),
+      ...(catalystCharges != null ? { catalyst_charges: catalystCharges } : {}),
     }),
     [
       buildSubmitInput,
@@ -312,24 +312,22 @@ export default function TopGearPage() {
               <span className="text-[15px] font-medium text-gray-300 transition-colors group-hover:text-white">
                 Revival Catalyst
               </span>
-              <p className="text-[13px] text-gray-600">Generate tier alternatives</p>
+              <p className="text-[13px] text-gray-600">Convert highest item per slot</p>
             </div>
-            {catalyst && (
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="number"
-                  min={0}
-                  max={10}
-                  value={catalystCharges}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value, 10);
-                    if (!isNaN(v) && v >= 0) setCatalystCharges(v);
-                  }}
-                  className="input-field !w-12 !px-1.5 !py-0.5 text-center !text-[13px]"
-                />
-                <span className="text-[13px] text-gray-500">charges</span>
-              </div>
-            )}
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                min={0}
+                max={10}
+                value={catalystCharges}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  if (!isNaN(v) && v >= 0) setCatalystCharges(v);
+                }}
+                className="input-field !w-12 !px-1.5 !py-0.5 text-center !text-[13px]"
+              />
+              <span className="text-[13px] text-gray-500">charges</span>
+            </div>
           </div>
         )}
       </div>

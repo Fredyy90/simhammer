@@ -24,6 +24,7 @@ export interface ResolvedItem {
   gem_name: string;
   gem_icon: string;
   is_catalyst?: boolean;
+  can_catalyst?: boolean;
 }
 
 export interface SlotResolution {

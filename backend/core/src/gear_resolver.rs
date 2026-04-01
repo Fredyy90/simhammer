@@ -138,6 +138,7 @@ fn enrich(item: &RawParsedItem, slot: &str) -> ResolvedItem {
         gem_icon,
         season_id,
         is_catalyst: false,
+        can_catalyst: false,
     }
 }
 
@@ -361,6 +362,11 @@ fn resolve_gear_impl(
             .sort_by(|a, b| b.ilevel.cmp(&a.ilevel));
     }
 
+    // Mark items that can be converted via catalyst
+    if let Some(class_id) = class_data::class_wow_id(class_name) {
+        mark_catalyst_eligible(&mut slots, class_id);
+    }
+
     // Catalyst pass: generate tier alternatives for non-tier items in tier slots
     if catalyst_charges.is_some() {
         if let Some(class_id) = class_data::class_wow_id(class_name) {
@@ -383,7 +389,7 @@ fn resolve_gear_impl(
 }
 
 /// Inventory type for each slot (used for catalyst item lookup).
-fn slot_to_inv_type(slot: &str) -> Option<u64> {
+pub fn slot_to_inv_type(slot: &str) -> Option<u64> {
     match slot {
         "head" => Some(1),
         "shoulder" => Some(3),
@@ -404,7 +410,7 @@ fn is_minimum_veteran(upgrade: &str) -> bool {
 }
 
 /// Build a catalyst variant of a source item for a given slot.
-fn build_catalyst_item(
+pub fn build_catalyst_item(
     source: &ResolvedItem,
     tier_info: &item_db::CatalystTierItem,
     slot: &str,
@@ -486,6 +492,41 @@ fn build_catalyst_item(
         gem_icon: source.gem_icon.clone(),
         season_id: source.season_id,
         is_catalyst: true,
+        can_catalyst: false,
+    }
+}
+
+/// Mark all items that are eligible for catalyst conversion with `can_catalyst = true`.
+fn mark_catalyst_eligible(slots: &mut HashMap<String, SlotResolution>, wow_class_id: u64) {
+    let current_season = item_db::current_season_id();
+
+    for (slot_key, slot_res) in slots.iter_mut() {
+        let inv_type = match slot_to_inv_type(slot_key) {
+            Some(t) => t,
+            None => continue,
+        };
+        let tier_info = match item_db::catalyst_tier_item(wow_class_id, inv_type) {
+            Some(t) => t,
+            None => continue,
+        };
+
+        let check = |item: &ResolvedItem| -> bool {
+            !item.is_catalyst
+                && item.season_id == current_season
+                && is_minimum_veteran(&item.upgrade)
+                && item.item_id != tier_info.item_id
+        };
+
+        if let Some(ref mut eq) = slot_res.equipped {
+            if check(eq) {
+                eq.can_catalyst = true;
+            }
+        }
+        for alt in &mut slot_res.alternatives {
+            if check(alt) {
+                alt.can_catalyst = true;
+            }
+        }
     }
 }
 

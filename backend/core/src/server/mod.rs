@@ -261,6 +261,10 @@ pub async fn start_with_storage_bind(
                 web::post().to(game_data_handlers::resolve_gear),
             )
             .route(
+                "/api/gear/catalyst-convert",
+                web::post().to(game_data_handlers::catalyst_convert),
+            )
+            .route(
                 "/api/season-config",
                 web::get().to(game_data_handlers::get_season_config),
             )
