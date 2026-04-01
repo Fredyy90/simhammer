@@ -1,11 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { API_URL } from '../lib/api';
 import type { ResolveGearResponse, ResolvedItem } from '../lib/types';
 import { useWowheadTooltips } from '../lib/useWowheadTooltips';
-import { API_URL } from '../lib/api';
-import { useSimContext } from './SimContext';
 import GearItemRow from './GearItemRow';
+import { useSimContext } from './SimContext';
 
 interface UpgradeOption {
   bonus_id: number;
@@ -118,6 +118,49 @@ export default function TopGearItemSelector({
     [upgradeMenuFor]
   );
 
+  const convertToCatalyst = useCallback(
+    async (item: ResolvedItem) => {
+      setUpgradeMenuFor(null);
+      try {
+        const res = await fetch(`${API_URL}/api/gear/catalyst-convert`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            class_name: resolved.character.class_name,
+            slot: item.slot,
+            item,
+          }),
+        });
+        if (!res.ok) return;
+        const catalystItem: ResolvedItem = await res.json();
+
+        // Add to resolved data (for display only — the backend re-generates
+        // catalyst items with is_catalyst: true during combo/sim resolve)
+        const updatedSlots = { ...resolved.slots };
+        const slotRes = updatedSlots[item.slot];
+        if (slotRes) {
+          updatedSlots[item.slot] = {
+            ...slotRes,
+            alternatives: [...slotRes.alternatives, catalystItem],
+          };
+        }
+        onResolvedChange({ ...resolved, slots: updatedSlots });
+
+        // Auto-select the catalyst item
+        const updated: Record<string, Set<string>> = {};
+        for (const [k, v] of Object.entries(selectedUids)) {
+          updated[k] = new Set(v);
+        }
+        if (!updated[item.slot]) updated[item.slot] = new Set();
+        updated[item.slot].add(catalystItem.uid);
+        onSelectionChange(updated);
+      } catch {
+        // silently ignore
+      }
+    },
+    [resolved, onResolvedChange, selectedUids, onSelectionChange]
+  );
+
   const addUpgradedCopy = useCallback(
     (item: ResolvedItem, option: UpgradeOption) => {
       // Find the current upgrade bonus_id to replace
@@ -134,9 +177,13 @@ export default function TopGearItemSelector({
         `bonus_id=${newBonusIds.join('/')}`
       );
 
+      // Upgraded copies are added as bag items (not equipped), so origin must be 'bags'
+      // to match the UID the backend generates when parsing the appended simc line.
+      const copyOrigin = 'bags';
       const copy: ResolvedItem = {
         ...item,
-        uid: `${item.item_id}:${[...newBonusIds].sort((a, b) => a - b).join(':')}:${item.origin}:${item.slot}`,
+        origin: copyOrigin as ResolvedItem['origin'],
+        uid: `${item.item_id}:${[...newBonusIds].sort((a, b) => a - b).join(':')}:${copyOrigin}:${item.slot}`,
         bonus_ids: newBonusIds,
         simc_string: newSimcString,
         ilevel: option.itemLevel,
@@ -157,9 +204,18 @@ export default function TopGearItemSelector({
       // Notify parent so the simc string gets appended on submit
       onItemAdded(item.slot, newSimcString, item.origin);
 
+      // Auto-select the upgraded copy
+      const updated: Record<string, Set<string>> = {};
+      for (const [k, v] of Object.entries(selectedUids)) {
+        updated[k] = new Set(v);
+      }
+      if (!updated[item.slot]) updated[item.slot] = new Set();
+      updated[item.slot].add(copy.uid);
+      onSelectionChange(updated);
+
       setUpgradeMenuFor(null);
     },
-    [resolved, upgradeOptions, onResolvedChange, onItemAdded]
+    [resolved, upgradeOptions, onResolvedChange, onItemAdded, selectedUids, onSelectionChange]
   );
 
   function toggleItem(item: ResolvedItem, group: DisplayGroup) {
@@ -248,6 +304,7 @@ export default function TopGearItemSelector({
   function itemDetails(item: ResolvedItem): { text: string; color?: string }[] {
     const parts: { text: string; color?: string }[] = [];
     if (item.origin === 'vault') parts.push({ text: 'Great Vault', color: 'text-amber-400/80' });
+    if (item.is_catalyst) parts.push({ text: 'Catalyst', color: 'text-purple-400/80' });
     if (item.tag) parts.push({ text: item.tag });
     if (item.upgrade) parts.push({ text: item.upgrade });
     if (item.gem_name) {
@@ -262,6 +319,19 @@ export default function TopGearItemSelector({
     return parts;
   }
 
+  // Collect vault and catalyst UIDs for quick-select
+  const { vaultUids, catalystUids } = useMemo(() => {
+    const vault: { uid: string; slot: string }[] = [];
+    const catalyst: { uid: string; slot: string }[] = [];
+    for (const slotRes of Object.values(resolved.slots)) {
+      for (const alt of slotRes.alternatives) {
+        if (alt.origin === 'vault') vault.push({ uid: alt.uid, slot: alt.slot });
+        if (alt.is_catalyst) catalyst.push({ uid: alt.uid, slot: alt.slot });
+      }
+    }
+    return { vaultUids: vault, catalystUids: catalyst };
+  }, [resolved]);
+
   if (visibleGroups.length === 0) {
     return (
       <div className="card p-8 text-center">
@@ -272,6 +342,27 @@ export default function TopGearItemSelector({
     );
   }
 
+  function toggleGroup(items: { uid: string; slot: string }[]) {
+    const allSelected = items.length > 0 && items.every((c) => selectedUids[c.slot]?.has(c.uid));
+    const updated: Record<string, Set<string>> = {};
+    for (const [k, v] of Object.entries(selectedUids)) {
+      updated[k] = new Set(v);
+    }
+    for (const c of items) {
+      if (!updated[c.slot]) updated[c.slot] = new Set();
+      if (allSelected) {
+        updated[c.slot].delete(c.uid);
+      } else {
+        updated[c.slot].add(c.uid);
+      }
+    }
+    onSelectionChange(updated);
+  }
+
+  function deselectAll() {
+    onSelectionChange({});
+  }
+
   const comboLabel = `${comboCount.toLocaleString()} combo${comboCount !== 1 ? 's' : ''}`;
   const comboColorClass =
     comboCount > effectiveMaxCombinations
@@ -280,27 +371,70 @@ export default function TopGearItemSelector({
         ? 'bg-surface-2 text-white'
         : 'bg-surface-2 text-muted';
 
+  const hasSelection = Object.values(selectedUids).some((s) => s.size > 0);
+  const allVaultSelected = vaultUids.length > 0 && vaultUids.every((c) => selectedUids[c.slot]?.has(c.uid));
+  const allCatalystSelected = catalystUids.length > 0 && catalystUids.every((c) => selectedUids[c.slot]?.has(c.uid));
+
+  const quickSelectBar = (
+    <div className="flex items-center gap-1.5">
+      {vaultUids.length > 0 && (
+        <button
+          type="button"
+          onClick={() => toggleGroup(vaultUids)}
+          className={`rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+            allVaultSelected
+              ? 'bg-amber-400/15 text-amber-300'
+              : 'text-amber-400/60 hover:bg-amber-400/10 hover:text-amber-300'
+          }`}
+        >
+          Vault
+        </button>
+      )}
+      {catalystUids.length > 0 && (
+        <button
+          type="button"
+          onClick={() => toggleGroup(catalystUids)}
+          className={`rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+            allCatalystSelected
+              ? 'bg-purple-400/15 text-purple-300'
+              : 'text-purple-400/60 hover:bg-purple-400/10 hover:text-purple-300'
+          }`}
+        >
+          Catalyst
+        </button>
+      )}
+      {hasSelection && (
+        <button
+          type="button"
+          onClick={deselectAll}
+          className="rounded-md px-2 py-1 text-[11px] font-medium text-gray-500 hover:bg-white/[0.04] hover:text-gray-300 transition-colors"
+        >
+          Clear
+        </button>
+      )}
+      <span className={`rounded-md px-2.5 py-1 font-mono text-xs ${comboColorClass}`}>
+        {comboLabel}
+      </span>
+    </div>
+  );
+
   return (
     <div className="space-y-4">
       {!headerVisible && (
         <div className="fixed left-0 right-0 top-12 z-40 flex items-center justify-between border-b border-border/50 bg-surface/90 px-4 py-2 backdrop-blur-sm">
           <p className="text-xs font-medium uppercase tracking-widest text-muted">Select Items</p>
-          <span className={`rounded-md px-2.5 py-1 font-mono text-xs ${comboColorClass}`}>
-            {comboLabel}
-          </span>
+          {quickSelectBar}
         </div>
       )}
       <div ref={headerRef} className="flex items-center justify-between">
         <p className="text-xs font-medium uppercase tracking-widest text-muted">Select Items</p>
-        <span className={`rounded-md px-2.5 py-1 font-mono text-xs ${comboColorClass}`}>
-          {comboLabel}
-        </span>
+        {quickSelectBar}
       </div>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
         {visibleGroups.map(({ group, equipped, alternatives }) => (
           <div key={group.label} className="card space-y-1 p-3.5">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-muted">
+            <p className="mb-2 text-[13px] font-semibold uppercase tracking-widest text-muted">
               {group.label}
             </p>
 
@@ -323,6 +457,7 @@ export default function TopGearItemSelector({
                   loadingUpgrades={loadingUpgrades}
                   onUpgradeClick={() => openUpgradeMenu(item, item.uid)}
                   onUpgradeSelect={(opt) => addUpgradedCopy(item, opt)}
+                  onCatalystConvert={item.can_catalyst ? () => convertToCatalyst(item) : undefined}
                 />
               </GearItemRow>
             ))}
@@ -343,6 +478,7 @@ export default function TopGearItemSelector({
                 checked={isItemSelected(item, group)}
                 onToggle={() => toggleItem(item, group)}
                 vault={item.origin === 'vault'}
+                catalyst={item.is_catalyst}
                 href={item.item_id > 0 ? getWowheadUrl(item.item_id) : undefined}
                 wowheadData={item.item_id > 0 ? getWowheadData(item) : undefined}
               >
@@ -353,6 +489,7 @@ export default function TopGearItemSelector({
                   loadingUpgrades={loadingUpgrades}
                   onUpgradeClick={() => openUpgradeMenu(item, item.uid)}
                   onUpgradeSelect={(opt) => addUpgradedCopy(item, opt)}
+                  onCatalystConvert={item.can_catalyst ? () => convertToCatalyst(item) : undefined}
                 />
               </GearItemRow>
             ))}
@@ -370,6 +507,7 @@ function UpgradeButton({
   loadingUpgrades,
   onUpgradeClick,
   onUpgradeSelect,
+  onCatalystConvert,
 }: {
   item: ResolvedItem;
   upgradeMenuFor: string | null;
@@ -377,8 +515,9 @@ function UpgradeButton({
   loadingUpgrades: boolean;
   onUpgradeClick: () => void;
   onUpgradeSelect: (opt: UpgradeOption) => void;
+  onCatalystConvert?: () => void;
 }) {
-  if (!item.upgrade) return null;
+  if (!item.upgrade && !onCatalystConvert) return null;
   const isMenuOpen = upgradeMenuFor === item.uid;
 
   return (
@@ -410,36 +549,59 @@ function UpgradeButton({
       </button>
       {isMenuOpen && (
         <div className="absolute right-0 top-full z-50 mt-1 min-w-[180px] rounded-lg border border-border bg-surface py-1 shadow-xl">
-          {loadingUpgrades ? (
-            <div className="px-3 py-2 text-[11px] text-muted">Loading...</div>
-          ) : upgradeOptions.length === 0 ? (
-            <div className="px-3 py-2 text-[11px] text-muted">No options</div>
-          ) : (
-            upgradeOptions.map((opt) => {
-              const isCurrent = item.bonus_ids.includes(opt.bonus_id);
-              return (
-                <button
-                  key={opt.bonus_id}
-                  type="button"
-                  disabled={isCurrent}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    onUpgradeSelect(opt);
-                  }}
-                  className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-[11px] ${
-                    isCurrent
-                      ? 'cursor-default text-muted'
-                      : 'text-gray-300 hover:bg-white/[0.05] hover:text-white'
-                  }`}
-                >
-                  <span>{opt.fullName}</span>
-                  <span className="font-mono text-[10px] tabular-nums text-muted">
-                    {opt.itemLevel}
-                  </span>
-                </button>
-              );
-            })
+          {onCatalystConvert && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                onCatalystConvert();
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] text-purple-300 hover:bg-purple-500/10 hover:text-purple-200"
+            >
+              <svg className="h-3 w-3 shrink-0" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 1a1 1 0 011 1v2.07A5.001 5.001 0 0113 9a5 5 0 01-10 0 5.001 5.001 0 014-4.93V2a1 1 0 011-1zm0 5a3 3 0 100 6 3 3 0 000-6z" />
+              </svg>
+              Convert to Catalyst
+            </button>
+          )}
+          {onCatalystConvert && item.upgrade && (
+            <div className="my-1 border-t border-border/50" />
+          )}
+          {item.upgrade && (
+            <>
+              {loadingUpgrades ? (
+                <div className="px-3 py-2 text-[13px] text-muted">Loading...</div>
+              ) : upgradeOptions.length === 0 ? (
+                <div className="px-3 py-2 text-[13px] text-muted">No options</div>
+              ) : (
+                upgradeOptions.map((opt) => {
+                  const isCurrent = item.bonus_ids.includes(opt.bonus_id);
+                  return (
+                    <button
+                      key={opt.bonus_id}
+                      type="button"
+                      disabled={isCurrent}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        onUpgradeSelect(opt);
+                      }}
+                      className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-[13px] ${
+                        isCurrent
+                          ? 'cursor-default text-muted'
+                          : 'text-gray-300 hover:bg-white/[0.05] hover:text-white'
+                      }`}
+                    >
+                      <span>{opt.fullName}</span>
+                      <span className="font-mono text-[12px] tabular-nums text-muted">
+                        {opt.itemLevel}
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+            </>
           )}
         </div>
       )}
