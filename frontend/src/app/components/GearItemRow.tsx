@@ -122,7 +122,7 @@ export default function GearItemRow({
         <a
           href={href}
           data-wowhead={wowheadData}
-          className="block truncate text-[13px] leading-tight no-underline"
+          className="block truncate text-[15px] leading-tight no-underline"
           style={{ color: nameColor }}
           target="_blank"
           rel="noopener noreferrer"
@@ -131,7 +131,7 @@ export default function GearItemRow({
           {name}
         </a>
         {details && details.length > 0 && (
-          <span className="mt-0.5 block truncate text-[11px] text-muted">
+          <span className="mt-0.5 block truncate text-[13px] text-muted">
             {details.map((p, i) => (
               <span key={i}>
                 {i > 0 && <span className="opacity-40"> · </span>}

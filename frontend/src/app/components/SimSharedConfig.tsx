@@ -180,7 +180,7 @@ function AdvancedOptions() {
           </svg>
           <span className="text-sm font-medium text-zinc-300">Advanced Options</span>
           {!open && !isDefault && (
-            <span className="rounded-md bg-gold/10 px-1.5 py-0.5 text-[10px] font-medium text-gold">
+            <span className="rounded-md bg-gold/10 px-1.5 py-0.5 text-[12px] font-medium text-gold">
               Modified
             </span>
           )}
@@ -250,7 +250,7 @@ function AdvancedOptions() {
               placeholder="Custom APL or expansion options (e.g., actions=..., midnight.*, use_blizzard_action_list=1)..."
               className="input-field h-28 resize-y font-mono text-xs"
             />
-            <p className="text-[11px] text-zinc-600">
+            <p className="text-[13px] text-zinc-600">
               Override action priority lists or set expansion-specific options. Injected after the
               base actor.
             </p>
@@ -304,7 +304,7 @@ function ExpertToggle({
         </div>
         <span className="text-sm font-medium text-zinc-300">Expert Mode</span>
         {!open && hasContent && (
-          <span className="rounded-md bg-gold/10 px-1.5 py-0.5 text-[10px] font-medium text-gold">
+          <span className="rounded-md bg-gold/10 px-1.5 py-0.5 text-[12px] font-medium text-gold">
             Modified
           </span>
         )}
@@ -337,7 +337,7 @@ function ExpertToggle({
             placeholder={`Paste ${activeTabInfo.label.toLowerCase()} SimC input here...`}
             className="input-field h-32 resize-y font-mono text-xs"
           />
-          <p className="text-[11px] text-zinc-600">{activeTabInfo.desc}</p>
+          <p className="text-[13px] text-zinc-600">{activeTabInfo.desc}</p>
         </div>
       )}
     </div>
@@ -366,7 +366,7 @@ export default function SimSharedConfig() {
           value={simcInput}
           onChange={(e) => setSimcInput(e.target.value)}
           placeholder="Paste your SimC addon export here..."
-          className="input-field h-40 resize-y font-mono text-[11px] leading-relaxed"
+          className="input-field h-40 resize-y font-mono text-[13px] leading-relaxed"
         />
         {checksumStatus === 'invalid' && (
           <div className="flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
@@ -380,7 +380,7 @@ export default function SimSharedConfig() {
             >
               <path d="M8 1L1 14h14L8 1zM8 6v4M8 12v.5" />
             </svg>
-            <p className="text-[12px] text-amber-300">
+            <p className="text-[14px] text-amber-300">
               This input appears to have been manually edited. Results may not reflect your actual
               in-game character.
             </p>

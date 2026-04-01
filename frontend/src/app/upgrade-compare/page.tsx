@@ -226,7 +226,7 @@ export default function UpgradeComparePage() {
     <div className="space-y-6">
       {/* Explainer */}
       <div className="rounded-lg border border-border/50 bg-surface-2/50 px-4 py-3">
-        <p className="text-[13px] leading-relaxed text-zinc-400">
+        <p className="text-[15px] leading-relaxed text-zinc-400">
           Find the best way to spend your{' '}
           <span className="font-medium text-gold/80">Dawncrest upgrade currencies</span>. Select
           which equipped items to consider, and SimHammer will test every valid upgrade combination
@@ -237,7 +237,7 @@ export default function UpgradeComparePage() {
       {/* Currency Budget */}
       {hasCurrencies && (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[10px] font-medium uppercase tracking-widest text-muted">
+          <span className="text-[12px] font-medium uppercase tracking-widest text-muted">
             Budget
           </span>
           {Object.values(currencies)
@@ -253,8 +253,8 @@ export default function UpgradeComparePage() {
                   alt=""
                   className="h-4 w-4 shrink-0 rounded-sm"
                 />
-                <span className="text-[11px] text-gray-400">{c.name}</span>
-                <span className="font-mono text-[11px] tabular-nums text-white">{c.amount}</span>
+                <span className="text-[13px] text-gray-400">{c.name}</span>
+                <span className="font-mono text-[13px] tabular-nums text-white">{c.amount}</span>
               </div>
             ))}
         </div>
@@ -305,14 +305,14 @@ export default function UpgradeComparePage() {
                         alt=""
                         className="h-4 w-4 shrink-0 rounded-sm"
                       />
-                      <p className="text-[11px] font-semibold uppercase tracking-widest text-muted">
+                      <p className="text-[13px] font-semibold uppercase tracking-widest text-muted">
                         {group.currency?.name || `Currency ${group.currencyId}`}
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => toggleGroup(group.candidates)}
-                      className="text-[10px] text-zinc-500 hover:text-zinc-300"
+                      className="text-[12px] text-zinc-500 hover:text-zinc-300"
                     >
                       {allSelected ? 'Deselect' : 'Select all'}
                     </button>

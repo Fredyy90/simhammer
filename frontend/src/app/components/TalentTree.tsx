@@ -330,11 +330,11 @@ function TreeSection({
   return (
     <div className={compact ? 'w-[180px] shrink-0' : 'min-w-0 flex-1'}>
       <div className="mb-1 flex items-center justify-center gap-2">
-        <p className="text-center text-[10px] font-medium uppercase tracking-wider text-muted">
+        <p className="text-center text-[12px] font-medium uppercase tracking-wider text-muted">
           {label}
         </p>
         {pointsDisplay && (
-          <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-muted">
+          <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[12px] font-bold tabular-nums text-muted">
             {pointsDisplay}
           </span>
         )}

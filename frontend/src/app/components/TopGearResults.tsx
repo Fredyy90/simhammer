@@ -281,7 +281,7 @@ export default function TopGearResults({
                   <button
                     key={mode}
                     onClick={() => setGroupMode(mode)}
-                    className={`rounded border px-2.5 py-1 text-[11px] font-medium transition-all ${groupMode === mode
+                    className={`rounded border px-2.5 py-1 text-[13px] font-medium transition-all ${groupMode === mode
                       ? 'border-white bg-white text-black'
                       : 'border-border bg-surface-2 text-gray-400 hover:border-gray-500 hover:text-white'
                       }`}
@@ -291,7 +291,7 @@ export default function TopGearResults({
                 ))}
               </div>
             )}
-            <span className="font-mono text-[11px] text-muted">{results.length} results</span>
+            <span className="font-mono text-[13px] text-muted">{results.length} results</span>
           </div>
         </div>
 
@@ -300,8 +300,8 @@ export default function TopGearResults({
             {groupedResults.map(([encounter, group]) => (
               <div key={encounter}>
                 <div className="mb-2 flex items-center gap-2 border-b border-border/50 pb-1.5">
-                  <span className="text-[12px] font-semibold text-gray-300">{encounter}</span>
-                  <span className="font-mono text-[10px] text-muted">{group.length} items</span>
+                  <span className="text-[14px] font-semibold text-gray-300">{encounter}</span>
+                  <span className="font-mono text-[12px] text-muted">{group.length} items</span>
                 </div>
                 <div className="space-y-1">
                   {group.map((result) => (
@@ -422,7 +422,7 @@ function ResultRow({
   const isEquipped = result.items.length === 0 || result.name.startsWith('Currently Equipped');
   const hasTalentBuild = !!result.talent_build;
   const talentBadge = hasTalentBuild ? (
-    <span className="inline-flex shrink-0 items-center gap-1 rounded bg-purple-500/10 px-1.5 py-px text-[9px] font-medium">
+    <span className="inline-flex shrink-0 items-center gap-1 rounded bg-purple-500/10 px-1.5 py-px text-[11px] font-medium">
       {result.talent_spec && (
         <span className="text-purple-300">{specDisplayName(result.talent_spec)}</span>
       )}
@@ -456,7 +456,7 @@ function ResultRow({
       <div className="relative flex items-center justify-between gap-3 px-3 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {rank != null && (
-            <span className="w-5 shrink-0 text-right font-mono text-[10px] tabular-nums text-gray-600">
+            <span className="w-5 shrink-0 text-right font-mono text-[12px] tabular-nums text-gray-600">
               {rank}
             </span>
           )}
@@ -467,7 +467,7 @@ function ResultRow({
             if (isEquipped) {
               return (
                 <div className="flex items-center gap-2">
-                  <span className="text-[12px] text-muted">Currently Equipped</span>
+                  <span className="text-[14px] text-muted">Currently Equipped</span>
                   {talentBadge}
                 </div>
               );
@@ -495,14 +495,14 @@ function ResultRow({
           })()}
 
           {isBest && (
-            <span className="shrink-0 rounded bg-gold/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-gold">
+            <span className="shrink-0 rounded bg-gold/10 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-gold">
               Best
             </span>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <span
-            className={`flex items-center gap-1.5 font-mono text-[13px] tabular-nums ${result.delta > 0
+            className={`flex items-center gap-1.5 font-mono text-[15px] tabular-nums ${result.delta > 0
               ? 'text-emerald-400'
               : result.delta < 0
                 ? 'text-red-400'
@@ -572,7 +572,7 @@ function ItemTag({
       <a
         href={item.item_id > 0 ? getWowheadUrl(item.item_id) : undefined}
         data-wowhead={whData}
-        className="max-w-[120px] truncate text-[11px] font-medium no-underline"
+        className="max-w-[120px] truncate text-[13px] font-medium no-underline"
         style={{ color: qc }}
         target="_blank"
         rel="noopener noreferrer"
@@ -584,18 +584,18 @@ function ItemTag({
       >
         {name}
       </a>
-      <span className="text-[9px] text-muted">({slotName})</span>
+      <span className="text-[11px] text-muted">({slotName})</span>
       {item.upgrade_levels ? (
-        <span className="shrink-0 text-[8px] font-bold uppercase tracking-wider text-emerald-400">
+        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-emerald-400">
           +{item.upgrade_levels}
         </span>
       ) : item.origin === 'vault' ? (
-        <span className="shrink-0 text-[8px] font-bold uppercase tracking-wider text-amber-400">
+        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-amber-400">
           V
         </span>
       ) : null}
       {enchant?.name && (
-        <span className="max-w-[70px] truncate text-[9px] text-emerald-400/70" title={enchant.name}>
+        <span className="max-w-[70px] truncate text-[11px] text-emerald-400/70" title={enchant.name}>
           {enchant.name}
         </span>
       )}

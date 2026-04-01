@@ -314,7 +314,7 @@ export default function TopGearItemSelector({
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
         {visibleGroups.map(({ group, equipped, alternatives }) => (
           <div key={group.label} className="card space-y-1 p-3.5">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-muted">
+            <p className="mb-2 text-[13px] font-semibold uppercase tracking-widest text-muted">
               {group.label}
             </p>
 
@@ -426,9 +426,9 @@ function UpgradeButton({
       {isMenuOpen && (
         <div className="absolute right-0 top-full z-50 mt-1 min-w-[180px] rounded-lg border border-border bg-surface py-1 shadow-xl">
           {loadingUpgrades ? (
-            <div className="px-3 py-2 text-[11px] text-muted">Loading...</div>
+            <div className="px-3 py-2 text-[13px] text-muted">Loading...</div>
           ) : upgradeOptions.length === 0 ? (
-            <div className="px-3 py-2 text-[11px] text-muted">No options</div>
+            <div className="px-3 py-2 text-[13px] text-muted">No options</div>
           ) : (
             upgradeOptions.map((opt) => {
               const isCurrent = item.bonus_ids.includes(opt.bonus_id);
@@ -442,14 +442,14 @@ function UpgradeButton({
                     e.preventDefault();
                     onUpgradeSelect(opt);
                   }}
-                  className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-[11px] ${
+                  className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-[13px] ${
                     isCurrent
                       ? 'cursor-default text-muted'
                       : 'text-gray-300 hover:bg-white/[0.05] hover:text-white'
                   }`}
                 >
                   <span>{opt.fullName}</span>
-                  <span className="font-mono text-[10px] tabular-nums text-muted">
+                  <span className="font-mono text-[12px] tabular-nums text-muted">
                     {opt.itemLevel}
                   </span>
                 </button>

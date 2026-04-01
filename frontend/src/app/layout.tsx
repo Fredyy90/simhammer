@@ -47,7 +47,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                       <path d="M3 2l10 6-10 6V2z" />
                     </svg>
                   </div>
-                  <span className="text-[15px] font-bold tracking-tight text-gray-100 transition-colors group-hover:text-white">
+                  <span className="text-[17px] font-bold tracking-tight text-gray-100 transition-colors group-hover:text-white">
                     SimHammer
                   </span>
                 </a>
@@ -66,13 +66,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </main>
         </SimProvider>
         <footer className="mt-20 border-t border-border/40 py-8">
-          <p className="mx-auto max-w-md text-center text-[11px] leading-relaxed text-zinc-600">
+          <p className="mx-auto max-w-md text-center text-[13px] leading-relaxed text-zinc-600">
             SimHammer is a pet project held together by coffee, duct tape, and prayers to the RNG
             gods. Bugs are not features — but they might sim higher than your gear. Use at your own
             risk. Not affiliated with Blizzard, Raidbots, or anyone who knows what they&apos;re
             doing.
           </p>
-          <p className="mt-3 text-center text-[10px] text-zinc-700">v{packageJson.version}</p>
+          <p className="mt-3 text-center text-[12px] text-zinc-600">v{packageJson.version}</p>
         </footer>
       </body>
     </html>

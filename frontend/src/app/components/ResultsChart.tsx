@@ -128,7 +128,7 @@ export default function ResultsChart({ dps, abilities }: ResultsChartProps) {
                   className="absolute bottom-1 left-0 top-1 w-[3px] rounded-full"
                   style={{ backgroundColor: color, opacity: 0.6 }}
                 />
-                <span className="relative flex flex-1 items-center gap-2 truncate pl-3 text-[12px] text-gray-300">
+                <span className="relative flex flex-1 items-center gap-2 truncate pl-3 text-[14px] text-gray-300">
                   {hasChildren && (
                     <svg
                       className={`h-3.5 w-3.5 shrink-0 text-gray-400 transition-transform duration-150 ${isOpen ? 'rotate-90' : ''}`}
@@ -149,10 +149,10 @@ export default function ResultsChart({ dps, abilities }: ResultsChartProps) {
                   )}
                   {name}
                 </span>
-                <span className="relative w-16 shrink-0 text-right font-mono text-[11px] tabular-nums text-gray-500">
+                <span className="relative w-16 shrink-0 text-right font-mono text-[13px] tabular-nums text-gray-500">
                   {Math.round(a.portion_dps).toLocaleString()}
                 </span>
-                <span className="relative w-12 shrink-0 text-right font-mono text-[11px] tabular-nums text-gray-500">
+                <span className="relative w-12 shrink-0 text-right font-mono text-[13px] tabular-nums text-gray-500">
                   {pct.toFixed(1)}%
                 </span>
               </div>
@@ -171,7 +171,7 @@ export default function ResultsChart({ dps, abilities }: ResultsChartProps) {
                           opacity: 0.3,
                         }}
                       />
-                      <span className="relative flex flex-1 items-center gap-2 truncate pl-10 text-[11px] text-gray-500">
+                      <span className="relative flex flex-1 items-center gap-2 truncate pl-10 text-[13px] text-gray-500">
                         {child.spell_id && icons.get(child.spell_id) ? (
                           <SpellIcon icon={icons.get(child.spell_id)!} />
                         ) : (
@@ -179,10 +179,10 @@ export default function ResultsChart({ dps, abilities }: ResultsChartProps) {
                         )}
                         {childName}
                       </span>
-                      <span className="relative w-16 shrink-0 text-right font-mono text-[10px] tabular-nums text-gray-600">
+                      <span className="relative w-16 shrink-0 text-right font-mono text-[12px] tabular-nums text-gray-600">
                         {Math.round(child.portion_dps).toLocaleString()}
                       </span>
-                      <span className="relative w-12 shrink-0 text-right font-mono text-[10px] tabular-nums text-gray-600">
+                      <span className="relative w-12 shrink-0 text-right font-mono text-[12px] tabular-nums text-gray-600">
                         {childPct.toFixed(1)}%
                       </span>
                     </div>

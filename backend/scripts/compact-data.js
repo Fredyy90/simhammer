@@ -293,14 +293,14 @@ async function main() {
   let totalIn = 0;
   let totalOut = 0;
 
-  for (const [filename, config] of Object.entries(MANIFEST)) {
+  // Process all JSON files in the input directory.
+  // Files in MANIFEST get special compaction; everything else is just minified.
+  const allJsonFiles = fs.readdirSync(inputDir).filter(f => f.endsWith(".json"));
+
+  for (const filename of allJsonFiles) {
     const inputPath = path.join(inputDir, filename);
     const outputPath = path.join(outputDir, filename);
-
-    if (!fs.existsSync(inputPath)) {
-      console.warn(`  SKIP  ${filename} (not found)`);
-      continue;
-    }
+    const config = MANIFEST[filename] ?? null; // default: minify only
 
     const inSize = fs.statSync(inputPath).size;
     await compactFile(inputPath, outputPath, config, inputDir, outputDir);

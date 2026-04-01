@@ -265,7 +265,7 @@ export default function TalentPicker() {
                 setSelectedTalent(allLoadouts[idx].talentString);
                 if (viewMode === 'edit') setViewMode('view');
               }}
-              className="input-field !w-auto !border-transparent !bg-surface-2 !px-2.5 !py-1 !text-[11px]"
+              className="input-field !w-auto !border-transparent !bg-surface-2 !px-2.5 !py-1 !text-[13px]"
             >
               {allLoadouts.map((l, i) => (
                 <option key={`${l.name}-${i}`} value={i}>
@@ -281,7 +281,7 @@ export default function TalentPicker() {
             <>
               <button
                 onClick={() => setCompareMode((v) => !v)}
-                className={`rounded-md px-2.5 py-1 text-[11px] transition-all ${
+                className={`rounded-md px-2.5 py-1 text-[13px] transition-all ${
                   compareMode
                     ? 'bg-gold/10 font-medium text-gold'
                     : 'text-zinc-500 hover:bg-surface-2 hover:text-zinc-300'
@@ -291,7 +291,7 @@ export default function TalentPicker() {
               </button>
               <button
                 onClick={() => setShowImport((v) => !v)}
-                className={`rounded-md px-2.5 py-1 text-[11px] transition-all ${
+                className={`rounded-md px-2.5 py-1 text-[13px] transition-all ${
                   showImport
                     ? 'bg-gold/10 font-medium text-gold'
                     : 'text-zinc-500 hover:bg-surface-2 hover:text-zinc-300'
@@ -301,14 +301,14 @@ export default function TalentPicker() {
               </button>
               <button
                 onClick={handleBlankBuild}
-                className="rounded-md px-2.5 py-1 text-[11px] text-zinc-500 transition-all hover:bg-surface-2 hover:text-zinc-300"
+                className="rounded-md px-2.5 py-1 text-[13px] text-zinc-500 transition-all hover:bg-surface-2 hover:text-zinc-300"
               >
                 Blank
               </button>
               {!compareMode && (
                 <button
                   onClick={() => setViewMode((v) => (v === 'edit' ? 'view' : 'edit'))}
-                  className={`rounded-md px-2.5 py-1 text-[11px] transition-all ${
+                  className={`rounded-md px-2.5 py-1 text-[13px] transition-all ${
                     viewMode === 'edit'
                       ? 'bg-gold/10 font-medium text-gold'
                       : 'text-zinc-500 hover:bg-surface-2 hover:text-zinc-300'
@@ -324,7 +324,7 @@ export default function TalentPicker() {
               setViewMode((v) => (v === 'collapsed' ? 'view' : 'collapsed'));
               setShowImport(false);
             }}
-            className="rounded-md px-2.5 py-1 text-[11px] text-zinc-500 transition-all hover:bg-surface-2 hover:text-zinc-300"
+            className="rounded-md px-2.5 py-1 text-[13px] text-zinc-500 transition-all hover:bg-surface-2 hover:text-zinc-300"
           >
             {viewMode !== 'collapsed' ? 'Hide' : 'Show'}
           </button>
@@ -344,17 +344,17 @@ export default function TalentPicker() {
               }}
               onKeyDown={(e) => e.key === 'Enter' && handleImport()}
               placeholder="Paste talent export string or Wowhead URL..."
-              className="input-field !py-1.5 !text-[11px]"
+              className="input-field !py-1.5 !text-[13px]"
               autoFocus
             />
             <button
               onClick={handleImport}
-              className="shrink-0 rounded-lg bg-gold/10 px-3 py-1.5 text-[11px] font-medium text-gold transition-colors hover:bg-gold/20"
+              className="shrink-0 rounded-lg bg-gold/10 px-3 py-1.5 text-[13px] font-medium text-gold transition-colors hover:bg-gold/20"
             >
               Apply
             </button>
           </div>
-          {importError && <p className="mt-1.5 text-[11px] text-red-400">{importError}</p>}
+          {importError && <p className="mt-1.5 text-[13px] text-red-400">{importError}</p>}
         </div>
       )}
 
@@ -362,11 +362,11 @@ export default function TalentPicker() {
       {compareMode && viewMode !== 'collapsed' && (
         <div className="border-t border-border/50 px-4 py-3">
           <div className="mb-3 flex items-center justify-between">
-            <p className="text-[10px] font-medium uppercase tracking-wider text-muted">
+            <p className="text-[12px] font-medium uppercase tracking-wider text-muted">
               Select builds to compare
             </p>
             {talentBuilds.length > 1 && (
-              <p className="text-[10px] text-gold/70">
+              <p className="text-[12px] text-gold/70">
                 {talentBuilds.length} builds &times; gear combos
               </p>
             )}
@@ -397,7 +397,7 @@ export default function TalentPicker() {
                   {/* Spec label (only when different from base spec) */}
                   {loadoutSpecName && baseSpecId != null && loadoutSpecId !== baseSpecId && (
                     <div
-                      className="absolute left-1.5 top-1.5 z-10 rounded px-1.5 py-px text-[8px] font-bold"
+                      className="absolute left-1.5 top-1.5 z-10 rounded px-1.5 py-px text-[10px] font-bold"
                       style={{
                         color: classColorForSpec(loadoutSpecName) ?? '#c4b5fd',
                         backgroundColor: `${classColorForSpec(loadoutSpecName) ?? '#8b5cf6'}20`,
@@ -432,7 +432,7 @@ export default function TalentPicker() {
                       )}
                     </div>
                     <span
-                      className={`truncate text-[10px] font-medium ${checked ? 'text-zinc-200' : 'text-zinc-500'}`}
+                      className={`truncate text-[12px] font-medium ${checked ? 'text-zinc-200' : 'text-zinc-500'}`}
                     >
                       {l.name}
                       {l.isActive ? ' (eq)' : ''}

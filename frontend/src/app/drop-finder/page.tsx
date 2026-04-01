@@ -399,14 +399,14 @@ export default function DropFinderPage() {
                     </span>
                     {ilvl && (
                       <span
-                        className={`mt-1 font-mono text-[11px] font-medium tabular-nums ${isActive ? 'text-zinc-300' : 'text-zinc-500'}`}
+                        className={`mt-1 font-mono text-[13px] font-medium tabular-nums ${isActive ? 'text-zinc-300' : 'text-zinc-500'}`}
                       >
                         ilvl {ilvl}
                       </span>
                     )}
                     {d.track ? (
                       <span
-                        className={`mt-0.5 text-[10px] font-semibold ${tc?.text ?? 'text-zinc-400'} ${isActive ? 'opacity-100' : 'opacity-60'}`}
+                        className={`mt-0.5 text-[12px] font-semibold ${tc?.text ?? 'text-zinc-400'} ${isActive ? 'opacity-100' : 'opacity-60'}`}
                       >
                         {TRACK_SHORT[d.track] ?? d.track} {d.level}/{max}
                       </span>
@@ -448,14 +448,14 @@ export default function DropFinderPage() {
                     <button
                       key={spec}
                       onClick={() => toggleSpec(spec)}
-                      className={`rounded-md border px-2 py-0.5 text-[11px] font-medium transition-all duration-150 ${
+                      className={`rounded-md border px-2 py-0.5 text-[13px] font-medium transition-all duration-150 ${
                         isActive
                           ? 'border-gold/40 bg-gold/[0.08] text-gold'
                           : 'border-border bg-surface-2 text-zinc-600 hover:border-zinc-600 hover:text-zinc-400'
                       }`}
                     >
                       {formatSpecName(spec)}
-                      {isMain && <span className="ml-1 text-[9px] opacity-50">main</span>}
+                      {isMain && <span className="ml-1 text-[11px] opacity-50">main</span>}
                     </button>
                   );
                 })}

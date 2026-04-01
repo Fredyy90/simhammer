@@ -199,8 +199,8 @@ export function GearSlotRow({
       >
         <div className="h-7 w-7 shrink-0 rounded border border-border bg-white/[0.03]" />
         <div className={rtl ? 'text-right' : ''}>
-          <p className="text-[11px] text-gray-600">{SLOT_LABELS[slot] || slot}</p>
-          <p className="text-[9px] text-gray-700">Empty</p>
+          <p className="text-[13px] text-gray-600">{SLOT_LABELS[slot] || slot}</p>
+          <p className="text-[11px] text-gray-700">Empty</p>
         </div>
       </div>
     );
@@ -257,7 +257,7 @@ export function GearSlotRow({
           <a
             href={item.item_id > 0 ? getWowheadUrl(item.item_id) : undefined}
             data-wowhead={whData}
-            className="truncate text-[11px] font-medium leading-tight no-underline"
+            className="truncate text-[13px] font-medium leading-tight no-underline"
             style={{ color: qc }}
             target="_blank"
             rel="noopener noreferrer"
@@ -266,25 +266,25 @@ export function GearSlotRow({
             {name}
           </a>
           {isUpgrade && item.upgrade_levels ? (
-            <span className="shrink-0 rounded bg-emerald-500/10 px-1 py-px text-[8px] font-bold uppercase tracking-wider text-emerald-400">
+            <span className="shrink-0 rounded bg-emerald-500/10 px-1 py-px text-[10px] font-bold uppercase tracking-wider text-emerald-400">
               +{item.upgrade_levels} {item.upgrade_levels === 1 ? 'level' : 'levels'}
             </span>
           ) : isUpgrade ? (
-            <span className="shrink-0 rounded bg-emerald-500/10 px-1 py-px text-[8px] font-bold uppercase tracking-wider text-emerald-400">
+            <span className="shrink-0 rounded bg-emerald-500/10 px-1 py-px text-[10px] font-bold uppercase tracking-wider text-emerald-400">
               Upgrade
             </span>
           ) : isDowngrade ? (
-            <span className="shrink-0 rounded bg-red-500/10 px-1 py-px text-[8px] font-bold uppercase tracking-wider text-red-400">
+            <span className="shrink-0 rounded bg-red-500/10 px-1 py-px text-[10px] font-bold uppercase tracking-wider text-red-400">
               Downgrade
             </span>
           ) : null}
           {item.origin === 'vault' && (
-            <span className="shrink-0 rounded bg-amber-400/10 px-1 py-px text-[8px] font-bold uppercase tracking-wider text-amber-400">
+            <span className="shrink-0 rounded bg-amber-400/10 px-1 py-px text-[10px] font-bold uppercase tracking-wider text-amber-400">
               Vault
             </span>
           )}
         </div>
-        <p className="truncate text-[9px] text-muted">
+        <p className="truncate text-[11px] text-muted">
           {SLOT_LABELS[slot] || slot}
           {item.ilevel > 0 && ` · ${item.ilevel}`}
           {info?.tag && ` · ${info.tag}`}
