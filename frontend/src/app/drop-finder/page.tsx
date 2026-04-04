@@ -1,15 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import ErrorAlert from '../components/ErrorAlert';
-import { useSimContext } from '../components/SimContext';
-import ToggleButtonGroup from '../components/ToggleButtonGroup';
+import ErrorAlert from '../components/ui/ErrorAlert';
+import { useSimContext } from '../components/sim-config/SimContext';
+import ToggleButtonGroup from '../components/ui/ToggleButtonGroup';
 import { API_URL } from '../lib/api';
 import { useSimSubmit } from '../lib/useSimSubmit';
 import type { SeasonConfigResponse, DifficultyDef, DungeonCategory } from '../lib/types';
-import CategorySelector from './CategorySelector';
-import DropSlotList from './DropSlotList';
-import DungeonGrid from './DungeonGrid';
+import CategorySelector from '../components/loot/CategorySelector';
+import DropSlotList from '../components/loot/DropSlotList';
+import DungeonGrid from '../components/loot/DungeonGrid';
+import TalentPicker from '../components/talents/TalentPicker';
+import ConfigFooter from '../components/sim-config/ConfigPanel';
 import {
   detectClass,
   detectSpec,
@@ -20,7 +22,7 @@ import {
   type DropItem,
   type Instance,
   type UpgradeTracks,
-} from './types';
+} from '../components/loot/types';
 
 type Category = 'raids' | string;
 
@@ -335,15 +337,16 @@ export default function DropFinderPage() {
       : buttonLabel(`Find Upgrades (${selected.size} items)`);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-20">
+      <TalentPicker />
       <CategorySelector
-        category={category}
-        onChange={(key) => {
-          setCategory(key);
-          setSelectedId('');
-        }}
-        dungeonCats={dungeonCats}
-      />
+          category={category}
+          onChange={(key) => {
+            setCategory(key);
+            setSelectedId('');
+          }}
+          dungeonCats={dungeonCats}
+        />
 
       {category && hasImages ? (
         <DungeonGrid
@@ -389,24 +392,24 @@ export default function DropFinderPage() {
                         ? `${tc.border} ${tc.bg}`
                         : isActive
                           ? 'border-gold/40 bg-gold/[0.08]'
-                          : 'border-border bg-surface-2 hover:border-zinc-600'
+                          : 'border-transparent bg-surface-container-high hover:bg-surface-container-highest'
                     }`}
                   >
                     <span
-                      className={`text-lg font-black leading-none ${isActive && tc ? tc.text : isActive ? 'text-gold' : 'text-zinc-200'}`}
+                      className={`text-lg font-black leading-none ${isActive && tc ? tc.text : isActive ? 'text-gold' : 'text-on-surface'}`}
                     >
                       {d.label}
                     </span>
                     {ilvl && (
                       <span
-                        className={`mt-1 font-mono text-[13px] font-medium tabular-nums ${isActive ? 'text-zinc-300' : 'text-zinc-500'}`}
+                        className={`mt-1 font-mono text-[13px] font-medium tabular-nums ${isActive ? 'text-on-surface-variant' : 'text-on-surface-variant/60'}`}
                       >
                         ilvl {ilvl}
                       </span>
                     )}
                     {d.track ? (
                       <span
-                        className={`mt-0.5 text-[12px] font-semibold ${tc?.text ?? 'text-zinc-400'} ${isActive ? 'opacity-100' : 'opacity-60'}`}
+                        className={`mt-0.5 text-[12px] font-semibold ${tc?.text ?? 'text-on-surface-variant'} ${isActive ? 'opacity-100' : 'opacity-60'}`}
                       >
                         {TRACK_SHORT[d.track] ?? d.track} {d.level}/{max}
                       </span>
@@ -433,13 +436,13 @@ export default function DropFinderPage() {
 
       {className ? (
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-xs text-zinc-400">
+          <p className="text-xs text-on-surface-variant">
             Showing loot for{' '}
             <span className="font-medium text-gold">{className.replace('_', ' ')}</span>
           </p>
           {allSpecs.length > 1 && (
             <>
-              <span className="h-3.5 w-px bg-border" />
+              <span className="h-3.5 w-px bg-outline-variant/20" />
               <div className="flex flex-wrap gap-1">
                 {allSpecs.map((spec) => {
                   const isActive = activeSpecs.has(spec);
@@ -448,10 +451,10 @@ export default function DropFinderPage() {
                     <button
                       key={spec}
                       onClick={() => toggleSpec(spec)}
-                      className={`rounded-md border px-2 py-0.5 text-[13px] font-medium transition-all duration-150 ${
+                      className={`rounded-md px-2 py-0.5 text-[13px] font-medium transition-all duration-150 ${
                         isActive
-                          ? 'border-gold/40 bg-gold/[0.08] text-gold'
-                          : 'border-border bg-surface-2 text-zinc-600 hover:border-zinc-600 hover:text-zinc-400'
+                          ? 'bg-gold/[0.08] text-gold'
+                          : 'bg-surface-container-high text-on-surface-variant/40 hover:bg-surface-container-highest hover:text-on-surface-variant'
                       }`}
                     >
                       {formatSpecName(spec)}
@@ -500,44 +503,19 @@ export default function DropFinderPage() {
           />
 
           <ErrorAlert message={error} />
-
-          <div className="sticky bottom-0 z-50 -mx-4 bg-gradient-to-t from-[#111] via-[#111] to-transparent px-4 pb-4 pt-6">
-            <button
-              onClick={handleSubmit}
-              disabled={submitting || selected.size === 0 || !hasCharacter}
-              className="btn-primary flex w-full items-center justify-center gap-2 py-3 text-sm"
-            >
-              {submitting ? (
-                <>
-                  <svg className="h-4 w-4 animate-spin" viewBox="0 0 16 16" fill="none">
-                    <circle
-                      cx="8"
-                      cy="8"
-                      r="6"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      opacity="0.25"
-                    />
-                    <path
-                      d="M14 8a6 6 0 00-6-6"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  Starting sim…
-                </>
-              ) : (
-                submitLabel
-              )}
-            </button>
-          </div>
         </>
       )}
 
       {!selectedId && !loading && !category && (
         <p className="py-6 text-center text-sm text-muted">Select a category to get started.</p>
       )}
+
+      <ConfigFooter
+        onSubmit={handleSubmit}
+        submitting={submitting}
+        buttonLabel={submitLabel}
+        disabled={selected.size === 0 || !hasCharacter}
+      />
     </div>
   );
 }

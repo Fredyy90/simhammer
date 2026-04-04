@@ -2,14 +2,14 @@
 
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import DpsHeroCard from '../../components/DpsHeroCard';
-import GearOverview from '../../components/GearOverview';
-import type { GearItem } from '../../components/GearOverview';
-import ResultsChart from '../../components/ResultsChart';
-import SimStatus from '../../components/SimStatus';
-import StatWeightsTable from '../../components/StatWeightsTable';
-import TalentTree from '../../components/TalentTree';
-import TopGearResults from '../../components/TopGearResults';
+import DpsHeroCard from '../../components/results/DpsHeroCard';
+import GearOverview from '../../components/gear/GearOverview';
+import type { GearItem } from '../../components/gear/GearOverview';
+import ResultsChart from '../../components/results/ResultsChart';
+import SimStatus from '../../components/results/SimStatus';
+import StatWeightsTable from '../../components/results/StatWeightsTable';
+import TalentTree from '../../components/talents/TalentTree';
+import TopGearResults from '../../components/gear/TopGearResults';
 
 import { API_URL } from '../../lib/api';
 import {
@@ -263,9 +263,10 @@ export default function SimResultClient() {
             iterations={r.iterations as number | undefined}
             targetError={r.target_error as number | undefined}
             elapsedTime={r.elapsed_time_seconds as number | undefined}
+            baseDps={r.base_dps as number | undefined}
           />
           {r.equipped_gear &&
-            Object.keys(r.equipped_gear as Record<string, unknown>).length > 0 && (
+            Object.keys(r.equipped_gear as Record<string, unknown>).length > 0 ? (
               <GearOverview
                 gear={r.equipped_gear as Record<string, GearItem>}
                 characterRenderUrl={
@@ -274,7 +275,10 @@ export default function SimResultClient() {
                     : null
                 }
               />
-            )}
+            ) : null}
+          {r.stat_weights ? (
+            <StatWeightsTable statWeights={r.stat_weights as Record<string, number>} />
+          ) : null}
           {typeof r.talent_string === 'string' && r.talent_string && (
             <TalentTree talentString={r.talent_string as string} />
           )}
@@ -288,14 +292,11 @@ export default function SimResultClient() {
               }>) || []
             }
           />
-          {r.stat_weights && (
-            <StatWeightsTable statWeights={r.stat_weights as Record<string, number>} />
-          )}
         </>
       )}
 
       {/* Footer links */}
-      <div className="flex items-center justify-center gap-3 pb-4 text-xs text-muted">
+      <div className="flex items-center justify-center gap-3 pb-4 text-[10px] uppercase tracking-wider text-on-surface-variant/40">
         {typeof r.simc_version === 'string' && (
           <>
             {typeof r.simc_git_revision === 'string' && r.simc_git_revision ? (
