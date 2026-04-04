@@ -58,6 +58,62 @@ function getBuildStatus(
 
 type ViewMode = 'collapsed' | 'view' | 'edit';
 
+function LoadoutDropdown({
+  loadouts,
+  selectedIdx,
+  onSelect,
+}: {
+  loadouts: TalentLoadoutParsed[];
+  selectedIdx: number;
+  onSelect: (idx: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = loadouts[selectedIdx];
+
+  return (
+    <div className="relative" onBlur={() => setOpen(false)}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 rounded-lg bg-surface-container-high border border-outline-variant/20 px-3 py-1.5 text-[13px] font-medium text-on-surface transition-colors hover:bg-surface-container-highest"
+      >
+        <span>{current?.name}{current?.isActive ? ' (equipped)' : ''}</span>
+        <svg
+          className={`h-3.5 w-3.5 text-on-surface-variant/60 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        >
+          <path d="M4 6l4 4 4-4" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1 min-w-full overflow-hidden rounded-lg bg-surface-container-high py-1 shadow-lg shadow-black/40">
+          {loadouts.map((l, i) => (
+            <button
+              key={`${l.name}-${i}`}
+              type="button"
+              onMouseDown={() => {
+                onSelect(i);
+                setOpen(false);
+              }}
+              className={`flex w-full px-3.5 py-2 text-left text-[13px] transition-colors whitespace-nowrap ${
+                i === selectedIdx
+                  ? 'bg-gold/[0.08] text-gold'
+                  : 'text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface'
+              }`}
+            >
+              {l.name}{l.isActive ? ' (equipped)' : ''}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TalentPicker({ defaultView = 'collapsed', compact = false, hideCompare = false }: { defaultView?: ViewMode; compact?: boolean; hideCompare?: boolean }) {
   const { simcInput, selectedTalent, setSelectedTalent, talentBuilds, setTalentBuilds } =
     useSimContext();
@@ -277,7 +333,7 @@ export default function TalentPicker({ defaultView = 'collapsed', compact = fals
   if (allLoadouts.length === 0) return null;
 
   return (
-    <div className="card overflow-hidden">
+    <div className="card">
       {/* Header bar */}
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-3">
@@ -296,23 +352,15 @@ export default function TalentPicker({ defaultView = 'collapsed', compact = fals
           </div>
           <span className="text-xs font-medium text-on-surface-variant">Talents</span>
           {allLoadouts.length >= 2 && (
-            <select
-              value={selectedLoadoutIdx}
-              onChange={(e) => {
-                const idx = Number(e.target.value);
+            <LoadoutDropdown
+              loadouts={allLoadouts}
+              selectedIdx={selectedLoadoutIdx}
+              onSelect={(idx) => {
                 setSelectedLoadoutIdx(idx);
                 setSelectedTalent(allLoadouts[idx].talentString);
                 if (viewMode === 'edit') setViewMode('view');
               }}
-              className="input-field !w-auto !border-transparent !bg-surface-container-high !px-2.5 !py-1 !text-[13px]"
-            >
-              {allLoadouts.map((l, i) => (
-                <option key={`${l.name}-${i}`} value={i}>
-                  {l.name}
-                  {l.isActive ? ' (equipped)' : ''}
-                </option>
-              ))}
-            </select>
+            />
           )}
         </div>
         <div className="flex items-center gap-1">

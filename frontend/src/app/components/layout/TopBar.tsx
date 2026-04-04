@@ -10,6 +10,8 @@ import {
   type SavedCharacter,
 } from '../../lib/saved-characters';
 import WindowControls from './WindowTitlebar';
+import DesktopAppLink from './DesktopAppLink';
+import { useIsDesktop } from '../../lib/useIsDesktop';
 
 function parseCharacterInfo(input: string) {
   if (!input) return null;
@@ -33,6 +35,7 @@ function parseCharacterInfo(input: string) {
 }
 
 export default function TopBar() {
+  const isDesktop = useIsDesktop();
   const [editing, setEditing] = useState(false);
   const [showChars, setShowChars] = useState(false);
   const [characters, setCharacters] = useState<SavedCharacter[]>([]);
@@ -84,7 +87,7 @@ export default function TopBar() {
   }, [editing]);
 
   return (
-    <div ref={containerRef} className="desktop-drag sticky top-0 z-50 flex h-14 items-center justify-between bg-[#131313]/80 backdrop-blur-xl px-6 shadow-2xl shadow-black/40">
+    <div ref={containerRef} className="desktop-drag shrink-0 z-50 flex h-14 items-center justify-between bg-[#131313]/80 backdrop-blur-xl px-6 shadow-2xl shadow-black/40">
       <div className="desktop-no-drag relative flex items-center gap-1.5">
         {/* Character info + saved chars dropdown */}
         <button
@@ -185,8 +188,10 @@ export default function TopBar() {
         )}
       </div>
 
-      {/* Desktop window controls */}
-      <WindowControls />
+      <div className="desktop-no-drag flex items-center gap-3">
+        {!isDesktop && <DesktopAppLink />}
+        <WindowControls />
+      </div>
 
       {/* Expanded SimC editor — drops below the top bar */}
       {editing && (

@@ -27,16 +27,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         >{`const whTooltips = { colorLinks: false, iconizeLinks: false, renameLinks: false };`}</Script>
         <Script src="https://wow.zamimg.com/js/tooltips.js" strategy="afterInteractive" />
       </head>
-      <body className="min-h-screen">
+      <body className="h-screen overflow-hidden">
         <UpdateChecker />
         <SimProvider>
           <Sidebar />
-          <div className="pl-64">
+          <div className="flex h-screen flex-col pl-64">
             <TopBar />
-            <main className="mx-auto max-w-screen-2xl px-8 py-8">
+            <div className="flex-1 overflow-y-auto">
+              <main className="mx-auto max-w-screen-2xl px-8 py-8">
               {children}
             </main>
-            <footer className="mt-16 border-t border-outline-variant/10 py-8">
+            <footer className="mt-16 mb-24 border-t border-outline-variant/10 py-8">
               <p className="mx-auto max-w-md text-center text-[13px] leading-relaxed text-on-surface-variant/30">
                 SimHammer is a pet project held together by coffee, duct tape, and prayers to the
                 RNG gods. Bugs are not features — but they might sim higher than your gear. Use at
@@ -45,6 +46,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </p>
               <p className="mt-3 text-center text-[12px] text-on-surface-variant/30">v{packageJson.version}</p>
             </footer>
+            </div>
           </div>
         </SimProvider>
       </body>
