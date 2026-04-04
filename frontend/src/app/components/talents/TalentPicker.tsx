@@ -1,20 +1,21 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSimContext } from './SimContext';
+import { useSimContext } from '../sim-config/SimContext';
 import {
   parseTalentLoadouts,
   SPEC_ID_TO_NAME,
   specDisplayName,
   classColorForSpec,
-} from '../lib/types';
-import type { TalentLoadoutParsed } from '../lib/types';
-import { decodeHeader, decodeNodes } from '../lib/talentDecode';
-import { encodeTalentString } from '../lib/talentEncode';
-import { getPointsSpent, CLASS_POINTS, SPEC_POINTS } from '../lib/talentRules';
-import { useTalentTree } from '../lib/useTalentTree';
-import type { TalentTreeData } from '../lib/useTalentTree';
+} from '../../lib/types';
+import type { TalentLoadoutParsed } from '../../lib/types';
+import { decodeHeader, decodeNodes } from '../../lib/talentDecode';
+import { encodeTalentString } from '../../lib/talentEncode';
+import { getPointsSpent, CLASS_POINTS, SPEC_POINTS } from '../../lib/talentRules';
+import { useTalentTree } from '../../lib/useTalentTree';
+import type { TalentTreeData } from '../../lib/useTalentTree';
 import TalentTree from './TalentTree';
+import { getCharacters, getTalentBuilds, type SavedTalentBuild } from '../../lib/saved-characters';
 
 /** Check if a talent build has all points allocated. */
 function getBuildStatus(
@@ -57,15 +58,16 @@ function getBuildStatus(
 
 type ViewMode = 'collapsed' | 'view' | 'edit';
 
-export default function TalentPicker() {
+export default function TalentPicker({ defaultView = 'collapsed', compact = false, hideCompare = false }: { defaultView?: ViewMode; compact?: boolean; hideCompare?: boolean }) {
   const { simcInput, selectedTalent, setSelectedTalent, talentBuilds, setTalentBuilds } =
     useSimContext();
-  const [viewMode, setViewMode] = useState<ViewMode>('collapsed');
+  const [viewMode, setViewMode] = useState<ViewMode>(defaultView);
   const [compareMode, setCompareMode] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importValue, setImportValue] = useState('');
   const [importError, setImportError] = useState('');
   const [customLoadouts, setCustomLoadouts] = useState<TalentLoadoutParsed[]>([]);
+  const [savedBuilds, setSavedBuilds] = useState<TalentLoadoutParsed[]>([]);
   const [selectedLoadoutIdx, setSelectedLoadoutIdx] = useState(() => {
     const loadouts = parseTalentLoadouts(simcInput);
     const idx = loadouts.findIndex((l) => l.isActive);
@@ -74,10 +76,47 @@ export default function TalentPicker() {
 
   const addonLoadouts = useMemo(() => parseTalentLoadouts(simcInput), [simcInput]);
 
-  // Merge addon loadouts + custom (imported/blank) loadouts
+  // Fetch saved talent builds for the current character
+  useEffect(() => {
+    if (!simcInput) {
+      setSavedBuilds([]);
+      return;
+    }
+    // Extract name+realm to find the character
+    const nameMatch = simcInput.match(/^\w+="(.+)"$/m);
+    const realmMatch = simcInput.match(/^server=(.+)$/m);
+    if (!nameMatch || !realmMatch) {
+      setSavedBuilds([]);
+      return;
+    }
+    const charName = nameMatch[1];
+    const charRealm = realmMatch[1];
+
+    getCharacters().then((chars) => {
+      const char = chars.find((c) => c.name === charName && c.realm === charRealm);
+      if (!char) {
+        setSavedBuilds([]);
+        return;
+      }
+      getTalentBuilds(char.id).then((builds) => {
+        // Convert to TalentLoadoutParsed, filtering out builds already in addon loadouts
+        const addonStrings = new Set(parseTalentLoadouts(simcInput).map((l) => l.talentString));
+        const extra: TalentLoadoutParsed[] = builds
+          .filter((b) => !addonStrings.has(b.talent_string))
+          .map((b) => ({
+            name: `[${specDisplayName(b.spec)}] ${b.name}`,
+            talentString: b.talent_string,
+            isActive: false,
+          }));
+        setSavedBuilds(extra);
+      });
+    });
+  }, [simcInput]);
+
+  // Merge addon loadouts + saved builds from DB + custom (imported/blank) loadouts
   const allLoadouts = useMemo(
-    () => [...addonLoadouts, ...customLoadouts],
-    [addonLoadouts, customLoadouts]
+    () => [...addonLoadouts, ...savedBuilds, ...customLoadouts],
+    [addonLoadouts, savedBuilds, customLoadouts]
   );
 
   const currentTalent = allLoadouts[selectedLoadoutIdx]?.talentString || '';
@@ -255,7 +294,7 @@ export default function TalentPicker() {
               <path d="M2 2h12v12H2zM5 6h6M5 10h4" />
             </svg>
           </div>
-          <span className="text-xs font-medium text-zinc-300">Talents</span>
+          <span className="text-xs font-medium text-on-surface-variant">Talents</span>
           {allLoadouts.length >= 2 && (
             <select
               value={selectedLoadoutIdx}
@@ -265,7 +304,7 @@ export default function TalentPicker() {
                 setSelectedTalent(allLoadouts[idx].talentString);
                 if (viewMode === 'edit') setViewMode('view');
               }}
-              className="input-field !w-auto !border-transparent !bg-surface-2 !px-2.5 !py-1 !text-[13px]"
+              className="input-field !w-auto !border-transparent !bg-surface-container-high !px-2.5 !py-1 !text-[13px]"
             >
               {allLoadouts.map((l, i) => (
                 <option key={`${l.name}-${i}`} value={i}>
@@ -279,29 +318,31 @@ export default function TalentPicker() {
         <div className="flex items-center gap-1">
           {viewMode !== 'collapsed' && (
             <>
-              <button
-                onClick={() => setCompareMode((v) => !v)}
-                className={`rounded-md px-2.5 py-1 text-[13px] transition-all ${
-                  compareMode
-                    ? 'bg-gold/10 font-medium text-gold'
-                    : 'text-zinc-500 hover:bg-surface-2 hover:text-zinc-300'
-                }`}
-              >
-                Compare{talentBuilds.length > 1 ? ` (${talentBuilds.length})` : ''}
-              </button>
+              {!hideCompare && (
+                <button
+                  onClick={() => setCompareMode((v) => !v)}
+                  className={`rounded-md px-2.5 py-1 text-[13px] transition-all ${
+                    compareMode
+                      ? 'bg-gold/10 font-medium text-gold'
+                      : 'text-on-surface-variant/60 hover:bg-surface-container-high hover:text-on-surface-variant'
+                  }`}
+                >
+                  Compare{talentBuilds.length > 1 ? ` (${talentBuilds.length})` : ''}
+                </button>
+              )}
               <button
                 onClick={() => setShowImport((v) => !v)}
                 className={`rounded-md px-2.5 py-1 text-[13px] transition-all ${
                   showImport
                     ? 'bg-gold/10 font-medium text-gold'
-                    : 'text-zinc-500 hover:bg-surface-2 hover:text-zinc-300'
+                    : 'text-on-surface-variant/60 hover:bg-surface-container-high hover:text-on-surface-variant'
                 }`}
               >
                 Import
               </button>
               <button
                 onClick={handleBlankBuild}
-                className="rounded-md px-2.5 py-1 text-[13px] text-zinc-500 transition-all hover:bg-surface-2 hover:text-zinc-300"
+                className="rounded-md px-2.5 py-1 text-[13px] text-on-surface-variant/60 transition-all hover:bg-surface-container-high hover:text-on-surface-variant"
               >
                 Blank
               </button>
@@ -311,7 +352,7 @@ export default function TalentPicker() {
                   className={`rounded-md px-2.5 py-1 text-[13px] transition-all ${
                     viewMode === 'edit'
                       ? 'bg-gold/10 font-medium text-gold'
-                      : 'text-zinc-500 hover:bg-surface-2 hover:text-zinc-300'
+                      : 'text-on-surface-variant/60 hover:bg-surface-container-high hover:text-on-surface-variant'
                   }`}
                 >
                   {viewMode === 'edit' ? 'Done' : 'Edit'}
@@ -324,7 +365,7 @@ export default function TalentPicker() {
               setViewMode((v) => (v === 'collapsed' ? 'view' : 'collapsed'));
               setShowImport(false);
             }}
-            className="rounded-md px-2.5 py-1 text-[13px] text-zinc-500 transition-all hover:bg-surface-2 hover:text-zinc-300"
+            className="rounded-md px-2.5 py-1 text-[13px] text-on-surface-variant/60 transition-all hover:bg-surface-container-high hover:text-on-surface-variant"
           >
             {viewMode !== 'collapsed' ? 'Hide' : 'Show'}
           </button>
@@ -333,7 +374,7 @@ export default function TalentPicker() {
 
       {/* Import bar */}
       {showImport && viewMode !== 'collapsed' && (
-        <div className="border-t border-border/50 px-4 py-3">
+        <div className="border-t border-outline-variant/10 px-4 py-3">
           <div className="flex gap-2">
             <input
               type="text"
@@ -360,7 +401,7 @@ export default function TalentPicker() {
 
       {/* Compare mode — talent tree card grid */}
       {compareMode && viewMode !== 'collapsed' && (
-        <div className="border-t border-border/50 px-4 py-3">
+        <div className="border-t border-outline-variant/10 px-4 py-3">
           <div className="mb-3 flex items-center justify-between">
             <p className="text-[12px] font-medium uppercase tracking-wider text-muted">
               Select builds to compare
@@ -391,7 +432,7 @@ export default function TalentPicker() {
                   className={`group relative overflow-hidden rounded-lg border p-2 text-left transition-all ${
                     checked
                       ? 'border-gold/40 bg-gold/[0.04]'
-                      : 'border-border bg-surface hover:border-zinc-600'
+                      : 'border-transparent bg-surface-container-low hover:bg-surface-container-high'
                   }`}
                 >
                   {/* Spec label (only when different from base spec) */}
@@ -416,7 +457,7 @@ export default function TalentPicker() {
                       className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border transition-colors ${
                         checked
                           ? 'border-gold bg-gold'
-                          : 'border-zinc-600 group-hover:border-zinc-500'
+                          : 'border-outline-variant group-hover:border-outline-variant/60'
                       }`}
                     >
                       {checked && (
@@ -432,7 +473,7 @@ export default function TalentPicker() {
                       )}
                     </div>
                     <span
-                      className={`truncate text-[12px] font-medium ${checked ? 'text-zinc-200' : 'text-zinc-500'}`}
+                      className={`truncate text-[12px] font-medium ${checked ? 'text-on-surface' : 'text-on-surface-variant/60'}`}
                     >
                       {l.name}
                       {l.isActive ? ' (eq)' : ''}
@@ -447,13 +488,14 @@ export default function TalentPicker() {
 
       {/* Tree content */}
       {viewMode !== 'collapsed' && !compareMode && (
-        <div className="border-t border-border/50 p-4">
-          {viewMode === 'view' && currentTalent && <TalentTree talentString={currentTalent} bare />}
+        <div className={`border-t border-outline-variant/10 p-4 ${compact ? 'max-h-[280px] overflow-auto' : ''}`}>
+          {viewMode === 'view' && currentTalent && <TalentTree talentString={currentTalent} bare vertical={compact} />}
           {viewMode === 'edit' && specId && (
             <TalentTree
               talentString={selectedTalent || currentTalent}
               editable
               bare
+              vertical={compact}
               specId={specId}
               onTalentStringChange={handleEditorChange}
             />
