@@ -112,6 +112,21 @@ pub struct TopGearRequest {
     pub catalyst: bool,
     #[serde(default)]
     pub catalyst_charges: Option<u32>,
+    /// Enchant selections: slot -> list of enchant IDs to sim
+    #[serde(default)]
+    pub enchant_selections: HashMap<String, Vec<u64>>,
+    /// Gem options: flat list of gem item IDs to sim across all socketed slots
+    #[serde(default)]
+    pub gem_options: Vec<u64>,
+    /// When true, replace ALL existing gems (not just empty sockets)
+    #[serde(default)]
+    pub replace_gems: bool,
+    /// When true, selected diamonds are always placed in a socket (one per combo)
+    #[serde(default)]
+    pub diamond_always_use: bool,
+    /// When true, maximize unique gem colors across sockets
+    #[serde(default)]
+    pub max_colors: bool,
     #[serde(flatten)]
     pub options: SimOptions,
 }
@@ -192,6 +207,31 @@ pub(super) struct DropsQuery {
     pub class_name: String,
     #[serde(default)]
     pub spec: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct EnchantListQuery {
+    pub expansion: u64,
+    pub slot: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct GemListQuery {
+    pub expansion: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EnchantGemSimRequest {
+    pub simc_input: String,
+    /// Map of slot -> list of enchant IDs to sim
+    pub enchant_selections: HashMap<String, Vec<u64>>,
+    /// Gem options: flat list of gem item IDs to sim across all socketed slots
+    #[serde(default)]
+    pub gem_options: Vec<u64>,
+    #[serde(default)]
+    pub max_combinations: Option<usize>,
+    #[serde(flatten)]
+    pub options: SimOptions,
 }
 
 fn default_iterations() -> u32 {
