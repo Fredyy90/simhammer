@@ -1597,30 +1597,54 @@ fn build_slot_candidates(
     slot_item_lists
 }
 
-fn gear_set_identity_key(gear_set: &HashMap<String, Value>) -> String {
-    GEAR_SLOTS
+fn item_identity(item: &Value) -> String {
+    let item_id = item.get("item_id").and_then(|v| v.as_u64()).unwrap_or(0);
+    let mut bonus_ids: Vec<u64> = item
+        .get("bonus_ids")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|b| b.as_u64()).collect())
+        .unwrap_or_default();
+    bonus_ids.sort();
+    let bonus_key = bonus_ids
         .iter()
-        .map(|slot| {
-            if let Some(item) = gear_set.get(*slot) {
-                let item_id = item.get("item_id").and_then(|v| v.as_u64()).unwrap_or(0);
-                let mut bonus_ids: Vec<u64> = item
-                    .get("bonus_ids")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| arr.iter().filter_map(|b| b.as_u64()).collect())
-                    .unwrap_or_default();
-                bonus_ids.sort();
-                let bonus_key = bonus_ids
-                    .iter()
-                    .map(|b| b.to_string())
-                    .collect::<Vec<_>>()
-                    .join(":");
-                format!("{}={}:{}", slot, item_id, bonus_key)
-            } else {
-                format!("{}=none", slot)
-            }
-        })
+        .map(|b| b.to_string())
         .collect::<Vec<_>>()
-        .join("|")
+        .join(":");
+    format!("{}:{}", item_id, bonus_key)
+}
+
+fn gear_set_identity_key(gear_set: &HashMap<String, Value>) -> String {
+    // For paired slots (rings, trinkets), sort the two items so that
+    // (A in slot1, B in slot2) and (B in slot1, A in slot2) produce the same key.
+    let paired: HashSet<&str> = UNIQUE_SLOT_PAIRS
+        .iter()
+        .flat_map(|(a, b)| [*a, *b])
+        .collect();
+
+    let mut parts: Vec<String> = Vec::new();
+    let mut handled: HashSet<&str> = HashSet::new();
+
+    for slot in GEAR_SLOTS {
+        if handled.contains(slot) {
+            continue;
+        }
+        if paired.contains(slot) {
+            // Find the pair
+            if let Some((s1, s2)) = UNIQUE_SLOT_PAIRS.iter().find(|(a, b)| *a == *slot || *b == *slot) {
+                handled.insert(s1);
+                handled.insert(s2);
+                let id1 = gear_set.get(*s1).map(|i| item_identity(i)).unwrap_or_else(|| "none".to_string());
+                let id2 = gear_set.get(*s2).map(|i| item_identity(i)).unwrap_or_else(|| "none".to_string());
+                // Sort so order doesn't matter
+                let (a, b) = if id1 <= id2 { (id1, id2) } else { (id2, id1) };
+                parts.push(format!("{}+{}={},{}", s1, s2, a, b));
+            }
+        } else {
+            let id = gear_set.get(*slot).map(|i| item_identity(i)).unwrap_or_else(|| "none".to_string());
+            parts.push(format!("{}={}", slot, id));
+        }
+    }
+    parts.join("|")
 }
 
 fn main_hand_is_two_hand(gear_set: &HashMap<String, Value>, spec: &str) -> bool {
@@ -1752,22 +1776,6 @@ fn combinations<T: Clone>(items: &[T], k: usize) -> Vec<Vec<T>> {
     result
 }
 
-/// Generate all permutations of a slice.
-fn permutations<T: Clone>(items: &[T]) -> Vec<Vec<T>> {
-    if items.len() <= 1 {
-        return vec![items.to_vec()];
-    }
-    let mut result = Vec::new();
-    for (i, item) in items.iter().enumerate() {
-        let mut rest: Vec<T> = items.to_vec();
-        rest.remove(i);
-        for mut perm in permutations(&rest) {
-            perm.insert(0, item.clone());
-            result.push(perm);
-        }
-    }
-    result
-}
 
 /// Check if a simc gear string represents an item with sockets by looking up
 /// its item_id + bonus_ids and checking the resolved socket count.
