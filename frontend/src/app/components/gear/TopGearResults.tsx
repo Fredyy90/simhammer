@@ -57,6 +57,7 @@ interface TopGearResultsProps {
   iterations?: number;
   targetError?: number;
   elapsedTime?: number;
+  backLink?: React.ReactNode;
 }
 
 function gemBadgeClass(name?: string): string {
@@ -99,6 +100,7 @@ export default function TopGearResults({
   iterations,
   targetError,
   elapsedTime,
+  backLink,
 }: TopGearResultsProps) {
   const { t } = useLanguage();
   // Droptimizer grouping — only available when items have encounter data
@@ -281,6 +283,7 @@ export default function TopGearResults({
         iterations={iterations}
         targetError={targetError}
         elapsedTime={elapsedTime}
+        topAction={backLink}
       >
         {selectedResult && selectedResult.delta > 0 ? (
           <div className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-3 py-1.5 text-emerald-400">

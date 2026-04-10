@@ -186,6 +186,7 @@
   "results.simulationFailed": "Simulation Failed",
   "results.unknownError": "Unknown error",
   "results.noResultData": "No result data available.",
+  "results.backToTopGear": "Back to Top Gear",
 
   "loot.raids": "Raids",
   "loot.byInstance": "By Instance",

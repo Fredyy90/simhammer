@@ -18,6 +18,8 @@ interface DpsHeroCardProps {
   baseDps?: number;
   /** Optional content rendered between the DPS number and the metadata bar */
   children?: React.ReactNode;
+  /** Optional action rendered in the top-right corner of the hero card */
+  topAction?: React.ReactNode;
 }
 
 const FACTION_ICONS: Record<string, string> = {
@@ -70,6 +72,7 @@ export default function DpsHeroCard({
   elapsedTime,
   baseDps,
   children,
+  topAction,
 }: DpsHeroCardProps) {
   const { t } = useLanguage();
   const dpsDelta = baseDps != null && baseDps > 0 ? dps - baseDps : null;
@@ -139,6 +142,12 @@ export default function DpsHeroCard({
             (e.currentTarget as HTMLImageElement).style.display = 'none';
           }}
         />
+      )}
+      {/* Top-right action */}
+      {topAction && (
+        <div className="absolute top-4 right-4 z-20">
+          {topAction}
+        </div>
       )}
       {/* Hero content */}
       <div className="relative z-10 p-8 flex flex-col md:flex-row items-center gap-12">

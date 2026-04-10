@@ -11,6 +11,7 @@ import { API_URL } from '../lib/api';
 import { useSimSubmit } from '../lib/useSimSubmit';
 import type { ResolveGearResponse, ResolvedItem } from '../lib/types';
 import { useLanguage } from '../lib/i18n';
+import { storeTopGearState, getTopGearState, clearTopGearState } from '../lib/topgear-state';
 
 function Toggle({
   checked,
@@ -69,6 +70,37 @@ export default function TopGearPage() {
   const prevInputRef = useRef('');
   const prevUpgradeRef = useRef(false);
   const prevCatalystRef = useRef(false);
+  const restoringRef = useRef(false);
+
+  // Restore saved state on mount (when returning from result page)
+  useEffect(() => {
+    const saved = getTopGearState();
+    if (!saved) return;
+    clearTopGearState();
+    restoringRef.current = true;
+
+    setMaxUpgrade(saved.maxUpgrade);
+    setCopyEnchants(saved.copyEnchants);
+    setCatalyst(saved.catalyst);
+    setCatalystCharges(saved.catalystCharges);
+    setReplaceGems(saved.replaceGems);
+    setDiamondAlwaysUse(saved.diamondAlwaysUse);
+    setMaxColors(saved.maxColors);
+    setLocalItems(saved.localItems);
+
+    const uids: Record<string, Set<string>> = {};
+    for (const [slot, arr] of Object.entries(saved.selectedUids)) {
+      uids[slot] = new Set(arr);
+    }
+    setSelectedUids(uids);
+
+    const enchants: Record<string, Set<number>> = {};
+    for (const [slot, arr] of Object.entries(saved.enchantSelections)) {
+      enchants[slot] = new Set(arr);
+    }
+    setEnchantSelections(enchants);
+    setGemSelections(new Set(saved.gemSelections));
+  }, []);
 
   useEffect(() => {
     const trimmed = simcInput.trim();
@@ -108,11 +140,11 @@ export default function TopGearPage() {
 
           setResolved(data);
 
-          if (inputChanged && data.catalyst_charges != null) {
+          if (inputChanged && data.catalyst_charges != null && !restoringRef.current) {
             setCatalystCharges(data.catalyst_charges);
           }
 
-          if (inputChanged) {
+          if (inputChanged && !restoringRef.current) {
             setSelectedUids({});
             setLocalItems([]);
             setEnchantSelections({});
@@ -121,6 +153,7 @@ export default function TopGearPage() {
             setDiamondAlwaysUse(false);
             setMaxColors(false);
           }
+          restoringRef.current = false;
         } catch {
           setResolved(null);
           setSelectedUids({});
@@ -356,10 +389,35 @@ export default function TopGearPage() {
     return null;
   }, [resolved, t]);
 
+  const saveState = useCallback(() => {
+    const uidsSerialized: Record<string, string[]> = {};
+    for (const [slot, set] of Object.entries(selectedUids)) {
+      if (set.size > 0) uidsSerialized[slot] = [...set];
+    }
+    const enchantsSerialized: Record<string, number[]> = {};
+    for (const [slot, set] of Object.entries(enchantSelections)) {
+      if (set.size > 0) enchantsSerialized[slot] = [...set];
+    }
+    storeTopGearState({
+      selectedUids: uidsSerialized,
+      localItems,
+      enchantSelections: enchantsSerialized,
+      gemSelections: [...gemSelections],
+      maxUpgrade,
+      copyEnchants,
+      catalyst,
+      catalystCharges,
+      replaceGems,
+      diamondAlwaysUse,
+      maxColors,
+    });
+  }, [selectedUids, localItems, enchantSelections, gemSelections, maxUpgrade, copyEnchants, catalyst, catalystCharges, replaceGems, diamondAlwaysUse, maxColors]);
+
   const { submit, submitting, error, buttonLabel } = useSimSubmit({
     endpoint: '/api/top-gear/sim',
     buildPayload,
     validate,
+    onBeforeNavigate: saveState,
   });
 
   return (

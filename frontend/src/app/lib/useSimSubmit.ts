@@ -17,9 +17,11 @@ interface UseSimSubmitOptions {
   buildPayload: () => Record<string, unknown> | null;
   /** Optional pre-submit validation. Return an error string to abort. */
   validate?: () => string | null;
+  /** Called just before navigating to the result page. */
+  onBeforeNavigate?: () => void;
 }
 
-export function useSimSubmit({ endpoint, buildPayload, validate }: UseSimSubmitOptions) {
+export function useSimSubmit({ endpoint, buildPayload, validate, onBeforeNavigate }: UseSimSubmitOptions) {
   const { t } = useLanguage();
   const {
     fightStyle,
@@ -113,6 +115,7 @@ export function useSimSubmit({ endpoint, buildPayload, validate }: UseSimSubmitO
       if (scenarios.length === 0) {
         const r = results[0];
         if (r.status === 'fulfilled') {
+          onBeforeNavigate?.();
           window.location.href = `/sim/${r.value.id}`;
         } else {
           throw r.reason;
@@ -135,6 +138,7 @@ export function useSimSubmit({ endpoint, buildPayload, validate }: UseSimSubmitO
         if (siblings.length > 0) {
           storeScenarioSiblings(siblings);
           clearScenarios();
+          onBeforeNavigate?.();
           window.location.href = `/sim/${siblings[0].id}`;
         } else {
           throw new Error(t('validation.allScenariosFailed'));
@@ -149,6 +153,7 @@ export function useSimSubmit({ endpoint, buildPayload, validate }: UseSimSubmitO
     endpoint,
     buildPayload,
     validate,
+    onBeforeNavigate,
     fightStyle,
     threads,
     selectedTalent,
