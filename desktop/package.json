@@ -1,6 +1,6 @@
 {
   "name": "simhammer-desktop",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "private": true,
   "homepage": "https://simhammer.com",
   "author": {
@@ -13,8 +13,7 @@
     "build": "npm run build:frontend && npm run build:backend && electron-builder",
     "publish": "node scripts/publish.js",
     "build:frontend": "npm run --prefix ../frontend build:desktop && node scripts/copy-frontend.js",
-    "build:backend": "node scripts/build-backend.js",
-    "build:simc": "node scripts/build-simc.js"
+    "build:backend": "node scripts/build-backend.js"
   },
   "dependencies": {
     "electron-updater": "^6.3.9"
@@ -28,16 +27,14 @@
     "productName": "SimHammer",
     "files": [
       "main.js",
-      "preload.js"
+      "preload.js",
+      "src/main/**/*",
+      "scripts/**/*.js"
     ],
     "extraResources": [
       {
         "from": "resources/data",
         "to": "data"
-      },
-      {
-        "from": "resources/simc",
-        "to": "simc"
       },
       {
         "from": "resources/frontend",

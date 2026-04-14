@@ -1,7 +1,9 @@
 'use client';
+/* eslint-disable @next/next/no-img-element */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import ErrorAlert from '../components/ui/ErrorAlert';
+import SimcDownloadBanner from '../components/ui/SimcDownloadBanner';
 import { useSimContext } from '../components/sim-config/SimContext';
 import { useSimSubmit } from '../lib/useSimSubmit';
 import TalentPicker from '../components/talents/TalentPicker';
@@ -18,12 +20,14 @@ function parseCharacterInfo(input: string) {
   const nameMatch = input.match(/^(\w+)="(.+)"$/m);
   const specMatch = input.match(/^spec=(\w+)/m);
   const realmMatch = input.match(/^server=(.+)$/m);
+  const regionMatch = input.match(/^region=(\w+)/m);
   if (!nameMatch) return null;
   return {
     className: nameMatch[1],
     name: nameMatch[2],
     spec: specMatch?.[1] || 'unknown',
     realm: realmMatch?.[1] || null,
+    region: regionMatch?.[1] || 'eu',
   };
 }
 
@@ -112,12 +116,12 @@ export default function QuickSimPage() {
 
   const insetUrl =
     characterInfo?.realm && characterInfo?.name
-      ? `https://simhammer.com/api/blizzard/character/${encodeURIComponent(characterInfo.realm.toLowerCase())}/${encodeURIComponent(characterInfo.name.toLowerCase())}/media/inset`
+      ? `https://simhammer.com/api/blizzard/character/${characterInfo.region}/${encodeURIComponent(characterInfo.realm.toLowerCase())}/${encodeURIComponent(characterInfo.name.toLowerCase())}/media/inset`
       : null;
 
   const renderUrl =
     characterInfo?.realm && characterInfo?.name
-      ? `https://simhammer.com/api/blizzard/character/${encodeURIComponent(characterInfo.realm.toLowerCase())}/${encodeURIComponent(characterInfo.name.toLowerCase())}/media/render`
+      ? `https://simhammer.com/api/blizzard/character/${characterInfo.region}/${encodeURIComponent(characterInfo.realm.toLowerCase())}/${encodeURIComponent(characterInfo.name.toLowerCase())}/media/render`
       : null;
 
   const buildPayload = useCallback(
@@ -209,6 +213,7 @@ export default function QuickSimPage() {
         />
       )}
 
+      <SimcDownloadBanner />
       <ErrorAlert message={error} />
       <ConfigFooter
         onSubmit={submit}

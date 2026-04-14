@@ -1,12 +1,15 @@
 'use client';
 
 import { useCallback, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import ErrorAlert from '../components/ui/ErrorAlert';
+import SimcDownloadBanner from '../components/ui/SimcDownloadBanner';
 import { API_URL } from '../lib/api';
 import { useLanguage } from '../lib/i18n';
 
 export default function AdvancedPage() {
   const { t } = useLanguage();
+  const router = useRouter();
   const [rawInput, setRawInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -34,13 +37,13 @@ export default function AdvancedPage() {
         return;
       }
       const data = await res.json();
-      window.location.href = `/sim/${data.id}`;
+      router.push(`/sim/${data.id}`);
     } catch {
       setError(t('validation.submitFailed'));
     } finally {
       setSubmitting(false);
     }
-  }, [rawInput, t]);
+  }, [rawInput, router, t]);
 
   return (
     <div className="space-y-6 pb-8">
@@ -62,6 +65,7 @@ export default function AdvancedPage() {
         />
       </div>
 
+      <SimcDownloadBanner />
       <ErrorAlert message={error} />
 
       <div className="flex justify-end">

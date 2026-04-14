@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useSimContext } from '../components/sim-config/SimContext';
 import { API_URL } from './api';
 import { useLanguage } from './i18n';
@@ -23,6 +24,7 @@ interface UseSimSubmitOptions {
 
 export function useSimSubmit({ endpoint, buildPayload, validate, onBeforeNavigate }: UseSimSubmitOptions) {
   const { t } = useLanguage();
+  const router = useRouter();
   const {
     fightStyle,
     threads,
@@ -39,6 +41,7 @@ export function useSimSubmit({ endpoint, buildPayload, validate, onBeforeNavigat
     raidBuffs,
     consumables,
     expansionOptions,
+    simcBranch,
     scenarios,
     clearScenarios,
   } = useSimContext();
@@ -106,6 +109,7 @@ export function useSimSubmit({ endpoint, buildPayload, validate, onBeforeNavigat
         ...(Object.values(expansionOptions).some((v) => !v)
           ? { expansion_options: Object.fromEntries(Object.entries(expansionOptions).map(([k, v]) => [k, v ? 1 : 0])) }
           : {}),
+        ...(simcBranch ? { simc_branch: simcBranch } : {}),
       };
 
       const results = await Promise.allSettled(
@@ -132,7 +136,7 @@ export function useSimSubmit({ endpoint, buildPayload, validate, onBeforeNavigat
         const r = results[0];
         if (r.status === 'fulfilled') {
           onBeforeNavigate?.();
-          window.location.href = `/sim/${r.value.id}`;
+          router.push(`/sim/${r.value.id}`);
         } else {
           throw r.reason;
         }
@@ -155,7 +159,7 @@ export function useSimSubmit({ endpoint, buildPayload, validate, onBeforeNavigat
           storeScenarioSiblings(siblings);
           clearScenarios();
           onBeforeNavigate?.();
-          window.location.href = `/sim/${siblings[0].id}`;
+          router.push(`/sim/${siblings[0].id}`);
         } else {
           throw new Error(t('validation.allScenariosFailed'));
         }
@@ -170,6 +174,7 @@ export function useSimSubmit({ endpoint, buildPayload, validate, onBeforeNavigat
     buildPayload,
     validate,
     onBeforeNavigate,
+    router,
     fightStyle,
     threads,
     selectedTalent,
@@ -185,6 +190,8 @@ export function useSimSubmit({ endpoint, buildPayload, validate, onBeforeNavigat
     raidBuffs,
     consumables,
     expansionOptions,
+    simcBranch,
+    specOverride,
     scenarios,
     clearScenarios,
     t,

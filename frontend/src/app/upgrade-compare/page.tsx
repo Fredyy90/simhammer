@@ -1,7 +1,9 @@
 'use client';
+/* eslint-disable @next/next/no-img-element */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ErrorAlert from '../components/ui/ErrorAlert';
+import SimcDownloadBanner from '../components/ui/SimcDownloadBanner';
 import GearItemRow from '../components/gear/GearItemRow';
 import { useSimContext } from '../components/sim-config/SimContext';
 import { API_URL } from '../lib/api';
@@ -98,7 +100,7 @@ function useUpgradeData(simcInput: string) {
 export default function UpgradeComparePage() {
   const { t, locale } = useLanguage();
   useItemNames();
-  const { simcInput, hasInput, maxCombinations } = useSimContext();
+  const { simcInput, hasInput } = useSimContext();
 
   const { data, loading } = useUpgradeData(simcInput);
   const [selectedSlots, setSelectedSlots] = useState<Set<string>>(new Set());
@@ -139,7 +141,6 @@ export default function UpgradeComparePage() {
           body: JSON.stringify({
             simc_input: simcInput,
             selected_slots: [...selectedSlots],
-            max_combinations: maxCombinations,
           }),
         });
         const result = await res.json();
@@ -150,7 +151,7 @@ export default function UpgradeComparePage() {
     }, 300);
 
     return () => clearTimeout(comboTimer.current);
-  }, [simcInput, selectedSlots, maxCombinations]);
+  }, [simcInput, selectedSlots]);
 
   // Sim submission
   const buildPayload = useCallback(() => {
@@ -158,9 +159,8 @@ export default function UpgradeComparePage() {
     return {
       simc_input: simcInput,
       selected_slots: [...selectedSlots],
-      max_combinations: maxCombinations,
     };
-  }, [simcInput, selectedSlots, maxCombinations]);
+  }, [simcInput, selectedSlots]);
 
   const validate = useCallback(() => {
     if (!hasInput) return t('validation.simcTooShort');
@@ -369,6 +369,7 @@ export default function UpgradeComparePage() {
         )}
       </div>
 
+      <SimcDownloadBanner />
       <ErrorAlert message={error} />
 
       <ConfigFooter

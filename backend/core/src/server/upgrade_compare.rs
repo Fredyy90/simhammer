@@ -1,18 +1,18 @@
 use actix_web::{web, HttpResponse};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::helpers::*;
 use super::types::*;
+use super::SimcBinaries;
 use crate::addon_parser;
 use crate::game_data;
 use crate::gear_resolver;
 use crate::log_buffer::LogBuffer;
 use crate::models::Job;
 use crate::profileset_generator;
-use crate::storage::JobStorage;
+use crate::db::JobRepo;
 
 /// Shared prep: parse SimC input, extract upgrade budget, build upgrade options per slot.
 struct PreparedUpgradeCompare {
@@ -366,8 +366,8 @@ pub(super) async fn get_upgrade_compare_combo_count(
 
 pub(super) async fn create_upgrade_compare_sim(
     req: web::Json<UpgradeCompareRequest>,
-    store: web::Data<Arc<dyn JobStorage>>,
-    simc_path: web::Data<PathBuf>,
+    repo: web::Data<JobRepo>,
+    simc_bins: web::Data<Arc<SimcBinaries>>,
     log_buffer: web::Data<Arc<LogBuffer>>,
 ) -> HttpResponse {
     let simc_input = crate::talent_normalize::normalize_simc_talents(&apply_talent_override(
@@ -401,12 +401,13 @@ pub(super) async fn create_upgrade_compare_sim(
 
     let generated_input = inject_expert_fields(&generated_input, &req.options);
 
-    if let Some(resp) = validate_batch(&req.options.batch_id, store.get_ref().as_ref()) {
+    if let Some(resp) = validate_batch(&req.options.batch_id, repo.get_ref()).await {
         return resp;
     }
 
     let options_json_uc = req.options.to_json();
-    let display_input_uc = crate::simc_runner::build_simc_input_from_options(&generated_input, &options_json_uc);
+    let display_input_uc =
+        crate::simc_runner::build_simc_input_from_options(&generated_input, &options_json_uc);
     let job = Job::new(
         display_input_uc,
         "top_gear".to_string(), // Reuse top_gear result format
@@ -426,11 +427,18 @@ pub(super) async fn create_upgrade_compare_sim(
     let mut job = job;
     job.combo_metadata_json = Some(meta_json);
     job.batch_id = req.options.batch_id.clone();
-    store.insert(job);
+    if let Err(e) = repo.insert(&job).await {
+        return HttpResponse::InternalServerError().json(json!({"detail": e.to_string()}));
+    }
+
+    let simc = match simc_bins.resolve(&req.options.simc_branch) {
+        Ok(path) => path,
+        Err(e) => return HttpResponse::BadRequest().json(json!({"detail": e})),
+    };
 
     spawn_staged_sim(
-        store.get_ref().clone(),
-        simc_path.get_ref().clone(),
+        repo.get_ref().clone(),
+        simc,
         req.options.to_json(),
         job_id.clone(),
         generated_input,

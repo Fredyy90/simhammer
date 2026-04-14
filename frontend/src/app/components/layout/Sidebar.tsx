@@ -2,8 +2,6 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState } from 'react';
-import SettingsPopover from '../sim-config/SettingsPopover';
 import SidebarRoutes from './SidebarRoutes';
 import LanguageSelector from './LanguageSelector';
 import { ScaleSelector } from './ContentScaler';
@@ -12,7 +10,6 @@ import { useLanguage } from '../../lib/i18n';
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const isDesktop = useIsDesktop();
   const { t } = useLanguage();
 
@@ -29,12 +26,13 @@ export default function Sidebar() {
     },
     {
       href: '/drop-finder',
-      label: t('nav.upgrades'),
-      matchPaths: ['/drop-finder', '/upgrade-compare'],
-      children: [
-        { href: '/drop-finder', label: t('nav.dropFinder') },
-        { href: '/upgrade-compare', label: t('nav.crestUpgrades') },
-      ],
+      label: t('nav.dropFinder'),
+      matchPaths: ['/drop-finder'],
+    },
+    {
+      href: '/upgrade-compare',
+      label: t('nav.crestUpgrades'),
+      matchPaths: ['/upgrade-compare'],
     },
     {
       href: '/advanced',
@@ -65,49 +63,19 @@ export default function Sidebar() {
           const isActive = item.matchPaths.some(
             (p) => pathname === p || pathname.startsWith(p + '/')
           );
-          const hasChildren = item.children && item.children.length > 0;
-          const isExpanded = expandedGroup === item.label || isActive;
 
           return (
-            <div key={item.href}>
-              <Link
-                href={item.href}
-                onClick={() => {
-                  if (hasChildren) {
-                    setExpandedGroup(isExpanded && !isActive ? null : item.label);
-                  }
-                }}
-                className={`flex items-center gap-3 px-6 py-3 font-headline font-bold text-xs uppercase transition-all ${
-                  isActive
-                    ? 'bg-primary-container/10 text-primary border-r-4 border-primary'
-                    : 'text-on-surface-variant hover:bg-surface hover:text-white'
-                }`}
-              >
-                {item.label}
-              </Link>
-
-              {hasChildren && isExpanded && (
-                <div className="ml-6 border-l border-outline-variant/20 mt-1 space-y-0.5">
-                  {item.children!.map((child) => {
-                    const childActive =
-                      pathname === child.href || pathname.startsWith(child.href + '/');
-                    return (
-                      <Link
-                        key={child.href}
-                        href={child.href}
-                        className={`flex items-center gap-3 pl-4 pr-6 py-2 font-headline font-bold text-[10px] uppercase transition-all ${
-                          childActive
-                            ? 'text-primary'
-                            : 'text-on-surface-variant/60 hover:text-primary'
-                        }`}
-                      >
-                        {child.label}
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`flex items-center gap-3 px-6 py-3 font-headline font-bold text-xs uppercase transition-all ${
+                isActive
+                  ? 'bg-primary-container/10 text-primary border-r-4 border-primary'
+                  : 'text-on-surface-variant hover:bg-surface hover:text-white'
+              }`}
+            >
+              {item.label}
+            </Link>
           );
         })}
       </nav>
@@ -159,7 +127,55 @@ export default function Sidebar() {
         </div>
         {isDesktop && (
           <div className="px-4 py-3 border-t border-outline-variant/20">
-            <SettingsPopover />
+            <Link
+              href="/settings"
+              className={`flex h-7 items-center gap-1.5 rounded-md px-2 transition-colors ${
+                pathname === '/settings'
+                  ? 'text-primary'
+                  : 'text-on-surface-variant/60 hover:bg-surface-container-high hover:text-on-surface-variant'
+              }`}
+            >
+              <svg
+                className="h-3.5 w-3.5"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="8" cy="8" r="2" />
+                <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" />
+              </svg>
+              <span className="text-[13px] font-medium">{t('common.settings')}</span>
+            </Link>
+          </div>
+        )}
+        {!isDesktop && (
+          <div className="px-4 py-3 border-t border-outline-variant/20">
+            <Link
+              href="/admin"
+              className={`flex h-7 items-center gap-1.5 rounded-md px-2 transition-colors ${
+                pathname === '/admin'
+                  ? 'text-primary'
+                  : 'text-on-surface-variant/60 hover:bg-surface-container-high hover:text-on-surface-variant'
+              }`}
+            >
+              <svg
+                className="h-3.5 w-3.5"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M8 1L8 3M8 13L8 15M3 8L1 8M15 8L13 8" />
+                <rect x="4" y="4" width="8" height="8" rx="1" />
+                <path d="M6 7h4M6 9h4" />
+              </svg>
+              <span className="text-[13px] font-medium">Admin</span>
+            </Link>
           </div>
         )}
       </div>

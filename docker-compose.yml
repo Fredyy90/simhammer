@@ -6,7 +6,7 @@ services:
       context: backend
       dockerfile: server/Dockerfile
       args:
-        - SIMC_VERSION=${SIMC_VERSION:-HEAD}
+        - SIMC_ENABLED_BRANCHES=${SIMC_ENABLED_BRANCHES:-weekly}
     ports:
       - "8000:8000"
     volumes:
@@ -17,6 +17,9 @@ services:
       - PORT=8000
       - MAX_COMBINATIONS=2
       - MAX_SCENARIOS=0
+      - SIMC_ENABLED_BRANCHES=${SIMC_ENABLED_BRANCHES:-weekly}
+      - SIMC_CHECK_INTERVAL=${SIMC_CHECK_INTERVAL:-3600}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
 
   frontend:
     build:
@@ -31,13 +34,24 @@ services:
     build:
       context: desktop
       dockerfile: Dockerfile.resources
-      args:
-        - SIMC_VERSION=${SIMC_VERSION:-HEAD}
     volumes:
       - ./backend/resources/data:/mount/data
-      - ./backend/resources/simc:/mount/simc
-    entrypoint: ["sh", "-c", "cp -r /out/data/* /mount/data/ && cp -r /out/simc/* /mount/simc/ && echo 'Resources ready.'"]
+    entrypoint: ["sh", "-c", "cp -r /out/data/* /mount/data/ && echo 'Resources ready.'"]
 
+
+  standalone:
+    profiles: ["standalone"]
+    build:
+      context: .
+      dockerfile: Dockerfile.standalone
+    ports:
+      - "8000:8000"
+    volumes:
+      - simhammer-db:/app/db
+    environment:
+      - MAX_COMBINATIONS=2
+      - MAX_SCENARIOS=0
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
 
 volumes:
   simhammer-db:

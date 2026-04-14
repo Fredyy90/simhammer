@@ -4,11 +4,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::types::SimOptions;
+use crate::db::{self, JobRepo};
 use crate::log_buffer::LogBuffer;
 use crate::models::JobStatus;
 use crate::result_parser;
 use crate::simc_runner;
-use crate::storage::{self, JobStorage};
 use crate::types::ResolveGearResponse;
 
 /// Sanitize user-provided custom SimC input by stripping dangerous directives.
@@ -241,12 +241,15 @@ pub(super) fn apply_spec_override(simc_input: &str, spec: &str) -> String {
     }
 }
 
-/// Extract server= (realm) from a simc input string and inject it into a parsed result.
+/// Extract server= (realm), region=, talents= from a simc input string and inject into result.
 pub(super) fn inject_realm(parsed: &mut Value, simc_input: &str) {
     for line in simc_input.lines() {
         let trimmed = line.trim();
         if let Some(val) = trimmed.strip_prefix("server=") {
             parsed["realm"] = json!(val);
+        }
+        if let Some(val) = trimmed.strip_prefix("region=") {
+            parsed["region"] = json!(val);
         }
         if let Some(val) = trimmed.strip_prefix("talents=") {
             parsed["talent_string"] = json!(val);
@@ -254,9 +257,28 @@ pub(super) fn inject_realm(parsed: &mut Value, simc_input: &str) {
     }
 }
 
+enum JobUpdate {
+    Progress { pct: u8, stage: String, detail: String },
+    StageComplete { summary: String },
+}
+
+fn enqueue_job_update(
+    tx: &tokio::sync::mpsc::UnboundedSender<JobUpdate>,
+    update: JobUpdate,
+    job_id: &str,
+) {
+    if tx.send(update).is_err() {
+        eprintln!("[{}] Failed to enqueue job update: writer task is closed", job_id);
+    }
+}
+
 /// Spawn a staged (top-gear / droptimizer) simulation in a background task.
+/// Progress and stage writes are serialized through an mpsc channel to prevent
+/// racing. An unbounded channel keeps these callbacks lossless because staged
+/// sim runs emit a finite burst of updates and we always await the writer drain
+/// before persisting terminal state.
 pub(super) fn spawn_staged_sim(
-    store: Arc<dyn JobStorage>,
+    repo: JobRepo,
     simc: PathBuf,
     options: Value,
     job_id: String,
@@ -265,33 +287,85 @@ pub(super) fn spawn_staged_sim(
     log_buffer: Arc<LogBuffer>,
 ) {
     tokio::spawn(async move {
-        store.update_status(&job_id, JobStatus::Running);
-        let store_progress = store.clone();
-        let store_stages = store.clone();
-        let jid_progress = job_id.clone();
-        let jid_stages = job_id.clone();
+        if let Err(e) = repo.update_status(&job_id, JobStatus::Running).await {
+            eprintln!("[{}] Failed to set Running status: {}", job_id, e);
+        }
+
+        // Channel for ordered progress/stage writes
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<JobUpdate>();
+        let writer_repo = repo.clone();
+        let writer_jid = job_id.clone();
+        let writer_handle = tokio::spawn(async move {
+            while let Some(update) = rx.recv().await {
+                match update {
+                    JobUpdate::Progress { pct, stage, detail } => {
+                        if let Err(e) = writer_repo
+                            .update_progress(&writer_jid, pct, &stage, &detail)
+                            .await
+                        {
+                            eprintln!("[{}] Failed to update progress: {}", writer_jid, e);
+                        }
+                    }
+                    JobUpdate::StageComplete { summary } => {
+                        if let Err(e) =
+                            writer_repo.complete_stage(&writer_jid, &summary).await
+                        {
+                            eprintln!("[{}] Failed to complete stage: {}", writer_jid, e);
+                        }
+                    }
+                }
+            }
+        });
+
+        let tx_progress = tx.clone();
+        let tx_stages = tx.clone();
+        let progress_log_jid = job_id.clone();
+        let stages_log_jid = job_id.clone();
         let logs = log_buffer.clone();
         let jid_logs = job_id.clone();
-        match simc_runner::run_simc_staged(
+
+        let result = simc_runner::run_simc_staged(
             &simc,
             &job_id,
             &simc_input,
             &options,
             combo_count,
             move |pct, stage, detail| {
-                store_progress.update_progress(&jid_progress, pct, stage, detail);
+                enqueue_job_update(
+                    &tx_progress,
+                    JobUpdate::Progress {
+                        pct,
+                        stage: stage.to_string(),
+                        detail: detail.to_string(),
+                    },
+                    &progress_log_jid,
+                );
             },
             move |summary| {
-                store_stages.complete_stage(&jid_stages, summary);
+                enqueue_job_update(
+                    &tx_stages,
+                    JobUpdate::StageComplete {
+                        summary: summary.to_string(),
+                    },
+                    &stages_log_jid,
+                );
             },
             move |line| {
                 logs.push_line(&jid_logs, line.to_string());
             },
         )
-        .await
-        {
+        .await;
+
+        // Close channel and wait for all queued writes to finish
+        drop(tx);
+        if let Err(e) = writer_handle.await {
+            eprintln!("[{}] Job update writer task failed: {}", job_id, e);
+        }
+
+        // Terminal writes — after all progress is flushed
+        match result {
             Ok(output) => {
-                let job_snap = store.get(&job_id);
+                let job_snap = repo.get(&job_id).await.ok().flatten();
                 let meta: Option<HashMap<String, Vec<Value>>> = job_snap
                     .as_ref()
                     .and_then(|j| j.combo_metadata_json.as_ref())
@@ -303,17 +377,25 @@ pub(super) fn spawn_staged_sim(
                 inject_realm(&mut parsed, &simc_input);
                 let result_str = serde_json::to_string(&parsed).unwrap_or_default();
                 let raw_str = serde_json::to_string(&output.json).ok();
-                store.set_result(&job_id, result_str, raw_str);
-                store.set_report_files(&job_id, output.html_report, output.text_output);
+                if let Err(e) = repo.set_result(&job_id, &result_str, raw_str.as_deref()).await {
+                    eprintln!("[{}] Failed to set result: {}", job_id, e);
+                }
+                if let Err(e) = repo.set_report_files(&job_id, output.html_report.as_deref(), output.text_output.as_deref()).await {
+                    eprintln!("[{}] Failed to set report files: {}", job_id, e);
+                }
             }
             Err(e) => {
-                // Don't overwrite cancelled status with a generic error
-                let is_cancelled = store
+                let is_cancelled = repo
                     .get(&job_id)
+                    .await
+                    .ok()
+                    .flatten()
                     .map(|j| j.status == JobStatus::Cancelled)
                     .unwrap_or(false);
                 if !is_cancelled {
-                    store.set_error(&job_id, e);
+                    if let Err(db_err) = repo.set_error(&job_id, &e).await {
+                        eprintln!("[{}] Failed to set error: {}", job_id, db_err);
+                    }
                 }
             }
         }
@@ -322,21 +404,21 @@ pub(super) fn spawn_staged_sim(
 }
 
 /// Validate batch_id against MAX_SCENARIOS. Returns an error response if rejected.
-pub(super) fn validate_batch(
+pub(super) async fn validate_batch(
     batch_id: &Option<String>,
-    store: &dyn JobStorage,
+    repo: &JobRepo,
 ) -> Option<actix_web::HttpResponse> {
     let bid = match batch_id {
         Some(b) if !b.is_empty() => b,
         _ => return None,
     };
-    let max = *storage::MAX_SCENARIOS;
+    let max = db::MAX_SCENARIOS.load(std::sync::atomic::Ordering::Relaxed);
     if max == 0 {
         return Some(actix_web::HttpResponse::BadRequest().json(json!({
             "detail": "Batch scenarios are disabled on this server."
         })));
     }
-    if store.count_batch(bid) >= max {
+    if repo.count_batch(bid).await.unwrap_or(0) >= max {
         return Some(actix_web::HttpResponse::BadRequest().json(json!({
             "detail": format!("Batch limit reached ({max} scenarios max).")
         })));

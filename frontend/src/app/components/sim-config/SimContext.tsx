@@ -14,8 +14,6 @@ interface SimContextType {
   setFightStyle: (v: string) => void;
   threads: number;
   setThreads: (v: number) => void;
-  maxCombinations: number | undefined;
-  setMaxCombinations: (v: number | undefined) => void;
   selectedTalent: string;
   setSelectedTalent: (v: string) => void;
   targetCount: number;
@@ -44,6 +42,9 @@ interface SimContextType {
   setConsumables: (v: Record<string, string>) => void;
   expansionOptions: Record<string, boolean>;
   setExpansionOptions: (v: Record<string, boolean>) => void;
+  // SimC branch selection (desktop)
+  simcBranch: string;
+  setSimcBranch: (v: string) => void;
   // Multi-talent compare
   talentBuilds: { name: string; talentString: string }[];
   setTalentBuilds: (v: { name: string; talentString: string }[]) => void;
@@ -55,6 +56,12 @@ interface SimContextType {
 }
 
 const SimContext = createContext<SimContextType | null>(null);
+
+function normalizeSimcBranch(value: string): string {
+  if (value.startsWith('weekly-')) return 'weekly';
+  if (value.startsWith('nightly-')) return 'nightly';
+  return value;
+}
 
 export function useSimContext() {
   const ctx = useContext(SimContext);
@@ -105,7 +112,6 @@ export function SimProvider({ children }: { children: ReactNode }) {
   const [simcInput, _setSimcInput] = useState('');
   const [fightStyle, setFightStyle] = useState('Patchwerk');
   const [threads, _setThreads] = useState(0);
-  const [maxCombinations, _setMaxCombinations] = useState<number | undefined>(undefined);
   const [selectedTalent, setSelectedTalent] = useState('');
   const [targetCount, setTargetCount] = useState(1);
   const [fightLength, setFightLength] = useState(300);
@@ -119,6 +125,7 @@ export function SimProvider({ children }: { children: ReactNode }) {
   const [raidBuffs, _setRaidBuffs] = useState<Record<string, boolean>>(DEFAULT_RAID_BUFFS);
   const [consumables, _setConsumables] = useState<Record<string, string>>({});
   const [expansionOptions, _setExpansionOptions] = useState<Record<string, boolean>>(DEFAULT_EXPANSION_OPTIONS);
+  const [simcBranch, _setSimcBranch] = useState('');
   const [talentBuilds, setTalentBuilds] = useState<{ name: string; talentString: string }[]>([]);
   const [scenarios, setScenarios] = useState<FightScenario[]>([]);
 
@@ -131,22 +138,16 @@ export function SimProvider({ children }: { children: ReactNode }) {
         const n = parseFloat(storedError);
         if (Number.isFinite(n) && n > 0) _setTargetError(n);
       }
+      const storedBranch = normalizeSimcBranch(localStorage.getItem('simhammer_simc_branch') ?? '');
+      _setSimcBranch(storedBranch);
+      if (storedBranch) {
+        localStorage.setItem('simhammer_simc_branch', storedBranch);
+      }
       _setRaidBuffs(readStoredJson('simhammer_raid_buffs', DEFAULT_RAID_BUFFS));
       _setConsumables(readStoredJson('simhammer_consumables', {}));
       _setExpansionOptions(readStoredJson('simhammer_expansion_options', DEFAULT_EXPANSION_OPTIONS));
     } catch {}
 
-    // Fetch server-enforced max combinations (web/demo only)
-    if (!window.electronAPI) {
-      fetch(`${API_URL}/api/config`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.max_combinations != null) {
-            _setMaxCombinations(data.max_combinations);
-          }
-        })
-        .catch(() => {});
-    }
   }, []);
 
   const addScenario = useCallback(() => {
@@ -195,20 +196,17 @@ export function SimProvider({ children }: { children: ReactNode }) {
     } catch {}
   }, []);
 
+  const setSimcBranch = useCallback((v: string) => {
+    const normalized = normalizeSimcBranch(v);
+    _setSimcBranch(normalized);
+    try {
+      localStorage.setItem('simhammer_simc_branch', normalized);
+    } catch {}
+  }, []);
+
   const setTargetError = useCallback((v: number) => {
     _setTargetError(v);
     try { localStorage.setItem('simhammer_target_error', String(v)); } catch {}
-  }, []);
-
-  const setMaxCombinations = useCallback((v: number | undefined) => {
-    _setMaxCombinations(v);
-    try {
-      if (v == null) {
-        localStorage.removeItem('simhammer_max_combinations');
-      } else {
-        localStorage.setItem('simhammer_max_combinations', String(v));
-      }
-    } catch {}
   }, []);
 
   return (
@@ -221,8 +219,6 @@ export function SimProvider({ children }: { children: ReactNode }) {
         setFightStyle,
         threads,
         setThreads,
-        maxCombinations,
-        setMaxCombinations,
         selectedTalent,
         setSelectedTalent,
         targetCount,
@@ -249,6 +245,8 @@ export function SimProvider({ children }: { children: ReactNode }) {
         setConsumables,
         expansionOptions,
         setExpansionOptions,
+        simcBranch,
+        setSimcBranch,
         talentBuilds,
         setTalentBuilds,
         scenarios,
