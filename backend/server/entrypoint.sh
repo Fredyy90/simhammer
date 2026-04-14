@@ -3,9 +3,32 @@ set -e
 
 SIMC_DIR="${SIMC_DIR:-/app/resources/simc}"
 SIMC_REPO="sortbek/simc-builds"
-SIMC_ASSET="simc-linux-x64.tar.gz"
 SIMC_CHECK_INTERVAL="${SIMC_CHECK_INTERVAL:-3600}"
 SIMC_ENABLED_BRANCHES_RAW="${SIMC_ENABLED_BRANCHES:-weekly}"
+
+detect_simc_asset() {
+    local arch="${SIMC_ARCH:-${TARGETARCH:-}}"
+
+    if [ -z "$arch" ] && command -v dpkg >/dev/null 2>&1; then
+        arch="$(dpkg --print-architecture)"
+    fi
+    if [ -z "$arch" ]; then
+        arch="$(uname -m)"
+    fi
+
+    case "$arch" in
+        amd64|x86_64)
+            echo "simc-linux-x64.tar.gz"
+            ;;
+        arm64|aarch64)
+            echo "simc-linux-arm64.tar.gz"
+            ;;
+        *)
+            echo "[simc-updater] ERROR: Unsupported container architecture '$arch' for SimC." >&2
+            return 1
+            ;;
+    esac
+}
 
 # ---------------------------------------------------------------------------
 # Parse enabled branches from comma-separated env var
@@ -24,8 +47,10 @@ fetch_branch() {
     local BRANCH_DIR="$SIMC_DIR/$BRANCH"
     local BIN="$BRANCH_DIR/simc"
     local VERSION_FILE="$BRANCH_DIR/.version"
+    local SIMC_ASSET
 
     mkdir -p "$BRANCH_DIR"
+    SIMC_ASSET="$(detect_simc_asset)" || return 1
 
     local TAG
     TAG=$(curl -fsSL "https://api.github.com/repos/$SIMC_REPO/tags?per_page=100" \
@@ -82,7 +107,9 @@ update_loop() {
 # Startup
 # ---------------------------------------------------------------------------
 parse_branches
+SIMC_ASSET_NAME="$(detect_simc_asset)"
 echo "[simc-updater] Enabled branches: ${ENABLED_BRANCHES[*]}, check interval: ${SIMC_CHECK_INTERVAL}s"
+echo "[simc-updater] Using SimC asset: ${SIMC_ASSET_NAME}"
 
 # Initial check
 for BRANCH in "${ENABLED_BRANCHES[@]}"; do

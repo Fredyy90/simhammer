@@ -20,6 +20,7 @@ function createBackendController(config) {
 
     backend = spawn(config.getBackendBinary(), ["--desktop"], {
       env,
+      cwd: config.getUserDataPath(),
       stdio: ["ignore", "pipe", "pipe"],
     });
 

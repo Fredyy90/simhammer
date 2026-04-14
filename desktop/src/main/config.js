@@ -19,6 +19,10 @@ function createAppConfig(app) {
     return path.join(process.resourcesPath, type, ...segments);
   }
 
+  function getUserDataPath() {
+    return app.getPath("userData");
+  }
+
   function getBackendBinary() {
     const name = process.platform === "win32" ? "simhammer-server.exe" : "simhammer-server";
     if (isDev) {
@@ -45,6 +49,7 @@ function createAppConfig(app) {
     getFrontendUrl,
     getResourcePath,
     getSimcDir,
+    getUserDataPath,
     isLocalUrl,
   };
 }

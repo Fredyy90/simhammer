@@ -27,6 +27,30 @@ simc_version_for_branch() {
     cat "$SIMC_CACHE_DIR/$1/.version" 2>/dev/null || true
 }
 
+detect_simc_asset() {
+    local arch="${SIMC_ARCH:-${TARGETARCH:-}}"
+
+    if [ -z "$arch" ] && command -v dpkg >/dev/null 2>&1; then
+        arch="$(dpkg --print-architecture)"
+    fi
+    if [ -z "$arch" ]; then
+        arch="$(uname -m)"
+    fi
+
+    case "$arch" in
+        amd64|x86_64)
+            echo "simc-linux-x64.tar.gz"
+            ;;
+        arm64|aarch64)
+            echo "simc-linux-arm64.tar.gz"
+            ;;
+        *)
+            echo "ERROR: Unsupported container architecture '$arch' for SimC." >&2
+            return 1
+            ;;
+    esac
+}
+
 # ---------------------------------------------------------------------------
 # fetch_simc_branch: download the latest simc build for a branch
 #   Usage: fetch_simc_branch <branch>
@@ -36,11 +60,11 @@ fetch_simc_branch() {
     local BRANCH_DIR="$SIMC_CACHE_DIR/$BRANCH"
     local BIN="$BRANCH_DIR/simc"
     local VERSION_FILE="$BRANCH_DIR/.version"
+    local ASSET
 
     mkdir -p "$BRANCH_DIR"
 
-    # Determine target architecture
-    local ASSET="simc-linux-x64.tar.gz"
+    ASSET="$(detect_simc_asset)" || return 1
 
     local TAG
     echo "    Looking for latest $BRANCH release..."
@@ -180,7 +204,9 @@ echo "==> Checking sortbek/simc-builds for SimC binaries..."
 parse_enabled_branches
 choose_active_branch
 prune_disabled_branches
+SIMC_ASSET_NAME="$(detect_simc_asset)"
 echo "==> Enabled SimC branches: ${ENABLED_BRANCHES[*]}"
+echo "==> Using SimC asset: $SIMC_ASSET_NAME"
 
 # Fetch the default branch first, then the rest of the enabled branches
 ensure_simc_branch "$ACTIVE_BRANCH"

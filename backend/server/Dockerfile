@@ -32,10 +32,18 @@ FROM debian:bookworm-slim AS simc-fetcher
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl jq && rm -rf /var/lib/apt/lists/*
 
+ARG TARGETARCH
 ARG SIMC_ENABLED_BRANCHES=weekly
 RUN set -e; \
     REPO="sortbek/simc-builds"; \
-    ASSET="simc-linux-x64.tar.gz"; \
+    ARCH="${SIMC_ARCH:-${TARGETARCH:-}}"; \
+    if [ -z "$ARCH" ]; then ARCH="$(dpkg --print-architecture)"; fi; \
+    case "$ARCH" in \
+        amd64|x86_64) ASSET="simc-linux-x64.tar.gz" ;; \
+        arm64|aarch64) ASSET="simc-linux-arm64.tar.gz" ;; \
+        *) echo "Unsupported SimC architecture: $ARCH" >&2; exit 1 ;; \
+    esac; \
+    echo "Using SimC asset: $ASSET ($ARCH)"; \
     ENABLED=$(printf '%s' "${SIMC_ENABLED_BRANCHES:-weekly}" | tr -d '[:space:]'); \
     [ -n "$ENABLED" ] || ENABLED="weekly"; \
     ACTIVE=""; \
