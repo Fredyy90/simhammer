@@ -306,7 +306,10 @@ export default function ItemTable({
                   {/* Checkbox + Icon + Name */}
                   <div className="col-span-5 flex items-center gap-3">
                     <button
-                      onClick={() => !embellishDisabled && onToggle(item.item_id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!embellishDisabled) onToggle(item.item_id);
+                      }}
                       className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 transition-colors ${
                         embellishDisabled
                           ? 'cursor-not-allowed border-outline-variant/20 bg-transparent'
