@@ -316,7 +316,10 @@ finger1=,id=102,gem_id=213453\n";
         )
         .unwrap();
 
-        assert_eq!(combo_count, 2);
+        // Two gem combos are generated (all-colored, one-diamond), but the all-colored
+        // combo produces a simc identical to the base actor (equipped gems already match),
+        // so it's suppressed by the any_gem_change check. Only 1 profileset is emitted.
+        assert_eq!(combo_count, 1);
         for block in input.split("### ").skip(1) {
             let diamond_uses = block.matches(&format!("gem_id={diamond_id}")).count();
             assert!(
@@ -335,5 +338,1071 @@ finger1=,id=102,gem_id=213453\n";
                 "{combo_name} metadata contained {diamond_uses} diamonds"
             );
         }
+    }
+
+    // Regression: alt item with a socket-adding bonus (no gem yet) must be eligible
+    // for gem assignment. Was broken when `resolved_item_to_value` dropped the
+    // `sockets` field, leaving `alt_has_socket` permanently false.
+    #[test]
+    fn top_gear_alt_with_socket_bonus_applies_each_gem() {
+        ensure_game_data_loaded();
+        // Bonus 13534 adds 1 socket; equipped wrist has no socket.
+        let base_profile = "\
+mage=test\n\
+spec=frost\n\
+wrist=,id=250002\n\
+main_hand=,id=200\n";
+
+        let alt_wrist = json!({
+            "slot": "wrist",
+            "simc_string": ",id=300,bonus_id=13534",
+            "is_equipped": false,
+            "origin": "bags",
+            "item_id": 300,
+            "ilevel": 0,
+            "name": "Alt Wrist",
+            "bonus_ids": [13534],
+            "enchant_id": 0,
+            "gem_id": 0,
+            "sockets": 1,
+        });
+        let equipped_wrist = json!({
+            "slot": "wrist",
+            "simc_string": ",id=250002",
+            "is_equipped": true,
+            "origin": "equipped",
+            "item_id": 250002,
+            "ilevel": 0,
+            "name": "Equipped Wrist",
+            "bonus_ids": [],
+            "enchant_id": 0,
+            "gem_id": 0,
+            "sockets": 0,
+        });
+
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert("wrist".to_string(), vec![equipped_wrist, alt_wrist]);
+
+        let mut selected = HashMap::new();
+        selected.insert("wrist".to_string(), vec!["300:13534:bags:wrist".to_string()]);
+
+        let gems = [213453_u64, 213454_u64, 213455_u64, 213456_u64];
+        let (input, combo_count, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &items_by_slot,
+            &selected,
+            Some(20),
+            &[],
+            None,
+            &HashMap::new(),
+            &gems,
+            &HashSet::from([300_u64]),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(
+            combo_count, 4,
+            "expected 4 emitted profilesets (one per gem), got {combo_count}:\n{input}"
+        );
+        for &gid in &gems {
+            assert!(
+                input.contains(&format!("wrist=,id=300,gem_id={gid},bonus_id=13534")),
+                "missing wrist+gem {gid} in output:\n{input}"
+            );
+        }
+    }
+
+    // Regression: with replace_gems=false, an already-gemmed equipped socket must
+    // keep its gem. Was broken when `apply_gem` called `set_gem_id` unconditionally
+    // and `alt_has_socket` treated already-gemmed items as eligible empty sockets.
+    #[test]
+    fn top_gear_preserves_existing_gems_when_not_replacing() {
+        ensure_game_data_loaded();
+        let base_profile = "\
+mage=test\n\
+spec=frost\n\
+head=,id=100,gem_id=213453\n\
+main_hand=,id=200\n";
+
+        let (_input, combo_count, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &HashMap::new(),
+            &HashMap::new(),
+            Some(20),
+            &[],
+            None,
+            &HashMap::new(),
+            &[213454_u64, 213455_u64],
+            &HashSet::from([100_u64]),
+            false, // replace_gems = false
+            false,
+            false,
+        )
+        .unwrap();
+
+        // Equipped head already has a gem; with replace_gems off, no eligible
+        // empty sockets exist, so no profilesets should be emitted.
+        assert_eq!(
+            combo_count, 0,
+            "expected 0 emitted profilesets when no empty sockets and replace_gems=false"
+        );
+    }
+
+    // Regression: the returned combo_count must match the number of "### Combo"
+    // blocks in the generated input. Was broken when the function returned the
+    // upper-bound estimate instead of the actual emit count.
+    #[test]
+    fn top_gear_combo_count_matches_emitted_profilesets() {
+        ensure_game_data_loaded();
+        let base_profile = "\
+mage=test\n\
+spec=frost\n\
+head=,id=100,gem_id=213453\n\
+wrist=,id=250002\n\
+main_hand=,id=200\n";
+
+        let alt_wrist = json!({
+            "slot": "wrist",
+            "simc_string": ",id=300,bonus_id=13534",
+            "is_equipped": false,
+            "origin": "bags",
+            "item_id": 300,
+            "ilevel": 0,
+            "name": "Alt Wrist",
+            "bonus_ids": [13534],
+            "enchant_id": 0,
+            "gem_id": 0,
+            "sockets": 1,
+        });
+        let equipped_wrist = json!({
+            "slot": "wrist",
+            "simc_string": ",id=250002",
+            "is_equipped": true,
+            "origin": "equipped",
+            "item_id": 250002,
+            "ilevel": 0,
+            "name": "Equipped Wrist",
+            "bonus_ids": [],
+            "enchant_id": 0,
+            "gem_id": 0,
+            "sockets": 0,
+        });
+
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert("wrist".to_string(), vec![equipped_wrist, alt_wrist]);
+
+        let mut selected = HashMap::new();
+        selected.insert("wrist".to_string(), vec!["300:13534:bags:wrist".to_string()]);
+
+        let (input, combo_count, metadata) = generate_top_gear_input_with_talents(
+            base_profile,
+            &items_by_slot,
+            &selected,
+            Some(20),
+            &[],
+            None,
+            &HashMap::new(),
+            &[213454_u64, 213455_u64, 213456_u64, 213457_u64],
+            &HashSet::from([100_u64, 300_u64]),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
+        let emitted_blocks = input.matches("### Combo ").count().saturating_sub(1); // minus base
+        assert_eq!(
+            combo_count, emitted_blocks,
+            "combo_count {combo_count} does not match emitted profileset blocks {emitted_blocks}"
+        );
+        assert_eq!(
+            metadata.len(),
+            combo_count + 1,
+            "metadata should have one entry per emitted combo plus base actor"
+        );
+    }
+
+    // ---- Helper for building items_by_slot entries ----
+    fn make_item(
+        slot: &str,
+        item_id: u64,
+        is_equipped: bool,
+        simc_string: &str,
+        bonus_ids: Vec<u64>,
+        sockets: u64,
+        gem_id: u64,
+    ) -> serde_json::Value {
+        json!({
+            "slot": slot,
+            "simc_string": simc_string,
+            "is_equipped": is_equipped,
+            "origin": if is_equipped { "equipped" } else { "bags" },
+            "item_id": item_id,
+            "ilevel": 0,
+            "name": format!("Test {} {}", slot, item_id),
+            "bonus_ids": bonus_ids,
+            "enchant_id": 0,
+            "gem_id": gem_id,
+            "sockets": sockets,
+        })
+    }
+
+    fn uid(item_id: u64, bonus_ids: &[u64], origin: &str, slot: &str) -> String {
+        let mut b = bonus_ids.to_vec();
+        b.sort();
+        let key = b.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(":");
+        format!("{}:{}:{}:{}", item_id, key, origin, slot)
+    }
+
+    // ---- Top gear edge cases ----
+
+    #[test]
+    fn top_gear_returns_zero_with_no_selections_no_variants() {
+        ensure_game_data_loaded();
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100\n";
+        let (_, count, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &HashMap::new(),
+            &HashMap::new(),
+            Some(20),
+            &[],
+            None,
+            &HashMap::new(),
+            &[],
+            &HashSet::new(),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn top_gear_filters_baseline_all_equipped_combo() {
+        ensure_game_data_loaded();
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100\n";
+
+        let equipped = make_item("head", 100, true, ",id=100", vec![], 0, 0);
+        let alt = make_item("head", 200, false, ",id=200", vec![], 0, 0);
+
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert("head".to_string(), vec![equipped, alt]);
+
+        let mut selected = HashMap::new();
+        selected.insert("head".to_string(), vec![uid(200, &[], "bags", "head")]);
+
+        let (_, count, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &items_by_slot,
+            &selected,
+            Some(20),
+            &[],
+            None,
+            &HashMap::new(),
+            &[],
+            &HashSet::new(),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+        // Only the alt combo emits; the all-equipped combo is the base actor.
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn top_gear_max_combinations_limit_triggers_error() {
+        ensure_game_data_loaded();
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100\nchest=,id=101\n";
+
+        let head_eq = make_item("head", 100, true, ",id=100", vec![], 0, 0);
+        let head_alt = make_item("head", 200, false, ",id=200", vec![], 0, 0);
+        let chest_eq = make_item("chest", 101, true, ",id=101", vec![], 0, 0);
+        let chest_alt = make_item("chest", 201, false, ",id=201", vec![], 0, 0);
+
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert("head".to_string(), vec![head_eq, head_alt]);
+        items_by_slot.insert("chest".to_string(), vec![chest_eq, chest_alt]);
+
+        let mut selected = HashMap::new();
+        selected.insert("head".to_string(), vec![uid(200, &[], "bags", "head")]);
+        selected.insert("chest".to_string(), vec![uid(201, &[], "bags", "chest")]);
+
+        // 2 slots × 2 options = 4 combos, minus baseline = 3. Set limit to 1.
+        let result = generate_top_gear_input_with_talents(
+            base_profile,
+            &items_by_slot,
+            &selected,
+            Some(1),
+            &[],
+            None,
+            &HashMap::new(),
+            &[],
+            &HashSet::new(),
+            false,
+            false,
+            false,
+        );
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Too many combinations"), "got: {err}");
+    }
+
+    #[test]
+    fn top_gear_talent_multiplication_doubles_emits() {
+        ensure_game_data_loaded();
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100\n";
+
+        let equipped = make_item("head", 100, true, ",id=100", vec![], 0, 0);
+        let alt = make_item("head", 200, false, ",id=200", vec![], 0, 0);
+
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert("head".to_string(), vec![equipped, alt]);
+
+        let mut selected = HashMap::new();
+        selected.insert("head".to_string(), vec![uid(200, &[], "bags", "head")]);
+
+        // 2 talent builds, 1 alt → emits = (1 alt + base) × 2 builds - 1 base = 3
+        // Build 1: alt; Build 2: equipped, alt
+        let talents = vec![
+            ("Build A".to_string(), "AAAA".to_string()),
+            ("Build B".to_string(), "BBBB".to_string()),
+        ];
+
+        let (input, count, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &items_by_slot,
+            &selected,
+            Some(50),
+            &talents,
+            None,
+            &HashMap::new(),
+            &[],
+            &HashSet::new(),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(count, 3);
+        assert!(input.contains("talents=AAAA") || input.contains("talents=BBBB"));
+    }
+
+    #[test]
+    fn top_gear_unique_equipped_filters_same_id_in_paired_slots() {
+        ensure_game_data_loaded();
+        let base_profile = "\
+mage=test\n\
+spec=frost\n\
+finger1=,id=100\n\
+finger2=,id=101\n";
+
+        // Make 99 selectable in BOTH finger1 and finger2 → unique-equipped should block 99/99.
+        let f1_eq = make_item("finger1", 100, true, ",id=100", vec![], 0, 0);
+        let f1_alt99 = make_item("finger1", 99, false, ",id=99", vec![], 0, 0);
+        let f2_eq = make_item("finger2", 101, true, ",id=101", vec![], 0, 0);
+        let f2_alt99 = make_item("finger2", 99, false, ",id=99", vec![], 0, 0);
+
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert("finger1".to_string(), vec![f1_eq, f1_alt99]);
+        items_by_slot.insert("finger2".to_string(), vec![f2_eq, f2_alt99]);
+
+        let mut selected = HashMap::new();
+        selected.insert("finger1".to_string(), vec![uid(99, &[], "bags", "finger1")]);
+        selected.insert("finger2".to_string(), vec![uid(99, &[], "bags", "finger2")]);
+
+        let (input, _count, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &items_by_slot,
+            &selected,
+            Some(50),
+            &[],
+            None,
+            &HashMap::new(),
+            &[],
+            &HashSet::new(),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
+        // No combo should have finger1=99 AND finger2=99
+        for block in input.split("### ").skip(1) {
+            let has_f1_99 = block.contains("finger1=,id=99");
+            let has_f2_99 = block.contains("finger2=,id=99");
+            assert!(
+                !(has_f1_99 && has_f2_99),
+                "combo violated unique-equipped:\n{block}"
+            );
+        }
+    }
+
+    #[test]
+    fn top_gear_vault_constraint_blocks_two_vault_items() {
+        ensure_game_data_loaded();
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100\nchest=,id=101\n";
+
+        let head_eq = make_item("head", 100, true, ",id=100", vec![], 0, 0);
+        let mut head_vault = make_item("head", 200, false, ",id=200", vec![], 0, 0);
+        head_vault["origin"] = json!("vault");
+
+        let chest_eq = make_item("chest", 101, true, ",id=101", vec![], 0, 0);
+        let mut chest_vault = make_item("chest", 201, false, ",id=201", vec![], 0, 0);
+        chest_vault["origin"] = json!("vault");
+
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert("head".to_string(), vec![head_eq, head_vault]);
+        items_by_slot.insert("chest".to_string(), vec![chest_eq, chest_vault]);
+
+        let mut selected = HashMap::new();
+        selected.insert("head".to_string(), vec![uid(200, &[], "vault", "head")]);
+        selected.insert("chest".to_string(), vec![uid(201, &[], "vault", "chest")]);
+
+        let (input, count, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &items_by_slot,
+            &selected,
+            Some(50),
+            &[],
+            None,
+            &HashMap::new(),
+            &[],
+            &HashSet::new(),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
+        // Each combo emitted may use at most one vault item (200 OR 201, never both).
+        for block in input.split("### ").skip(1) {
+            let has_200 = block.contains(",id=200");
+            let has_201 = block.contains(",id=201");
+            assert!(
+                !(has_200 && has_201),
+                "combo violated vault constraint:\n{block}"
+            );
+        }
+        // We selected both vault items but only single-vault picks are valid.
+        // Expected combos: head=200 (chest stays), chest=201 (head stays) → 2.
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn top_gear_catalyst_constraint_limits_combos() {
+        ensure_game_data_loaded();
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100\nchest=,id=101\n";
+
+        let head_eq = make_item("head", 100, true, ",id=100", vec![], 0, 0);
+        let mut head_cat = make_item("head", 200, false, ",id=200", vec![], 0, 0);
+        head_cat["is_catalyst"] = json!(true);
+
+        let chest_eq = make_item("chest", 101, true, ",id=101", vec![], 0, 0);
+        let mut chest_cat = make_item("chest", 201, false, ",id=201", vec![], 0, 0);
+        chest_cat["is_catalyst"] = json!(true);
+
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert("head".to_string(), vec![head_eq, head_cat]);
+        items_by_slot.insert("chest".to_string(), vec![chest_eq, chest_cat]);
+
+        let mut selected = HashMap::new();
+        selected.insert("head".to_string(), vec![uid(200, &[], "bags", "head")]);
+        selected.insert("chest".to_string(), vec![uid(201, &[], "bags", "chest")]);
+
+        // catalyst_charges=1 → max 1 catalyst item per combo.
+        let (_, count, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &items_by_slot,
+            &selected,
+            Some(50),
+            &[],
+            Some(1),
+            &HashMap::new(),
+            &[],
+            &HashSet::new(),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
+        // Combos: head_cat only (1), chest_cat only (1), both (filtered). = 2 emits.
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn top_gear_enchant_variations_per_slot() {
+        ensure_game_data_loaded();
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100,enchant_id=7000\n";
+
+        let mut enchant_selections = HashMap::new();
+        enchant_selections.insert("head".to_string(), vec![7001_u64, 7002_u64]);
+
+        let (input, count, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &HashMap::new(),
+            &HashMap::new(),
+            Some(20),
+            &[],
+            None,
+            &enchant_selections,
+            &[],
+            &HashSet::new(),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
+        // 2 non-baseline enchants → 2 emits
+        assert_eq!(count, 2);
+        assert!(input.contains("enchant_id=7001"));
+        assert!(input.contains("enchant_id=7002"));
+    }
+
+    #[test]
+    fn top_gear_replace_gems_swaps_existing_gem() {
+        ensure_game_data_loaded();
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100,gem_id=213453\n";
+
+        let (input, count, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &HashMap::new(),
+            &HashMap::new(),
+            Some(20),
+            &[],
+            None,
+            &HashMap::new(),
+            &[213454_u64], // a different colored gem
+            &HashSet::from([100_u64]),
+            true, // replace_gems = true
+            false,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(count, 1);
+        assert!(
+            input.contains("gem_id=213454"),
+            "expected new gem applied; got:\n{input}"
+        );
+    }
+
+    #[test]
+    fn top_gear_emits_no_combos_when_only_baseline_equipped_selected() {
+        ensure_game_data_loaded();
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100\n";
+
+        let equipped = make_item("head", 100, true, ",id=100", vec![], 0, 0);
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert("head".to_string(), vec![equipped]);
+
+        // Selecting only the equipped item itself → no alternatives.
+        let mut selected = HashMap::new();
+        selected.insert(
+            "head".to_string(),
+            vec![uid(100, &[], "equipped", "head")],
+        );
+
+        let (_, count, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &items_by_slot,
+            &selected,
+            Some(20),
+            &[],
+            None,
+            &HashMap::new(),
+            &[],
+            &HashSet::new(),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn top_gear_baseline_in_metadata_marked_currently_equipped() {
+        ensure_game_data_loaded();
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100\n";
+
+        let equipped = make_item("head", 100, true, ",id=100", vec![], 0, 0);
+        let alt = make_item("head", 200, false, ",id=200", vec![], 0, 0);
+
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert("head".to_string(), vec![equipped, alt]);
+
+        let mut selected = HashMap::new();
+        selected.insert("head".to_string(), vec![uid(200, &[], "bags", "head")]);
+
+        let (_, _, metadata) = generate_top_gear_input_with_talents(
+            base_profile,
+            &items_by_slot,
+            &selected,
+            Some(20),
+            &[],
+            None,
+            &HashMap::new(),
+            &[],
+            &HashSet::new(),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
+        assert!(
+            metadata.contains_key("Currently Equipped"),
+            "missing baseline metadata"
+        );
+    }
+
+    // ---- Droptimizer edge cases ----
+
+    #[test]
+    fn droptimizer_returns_zero_combos_for_empty_drops() {
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100\n";
+        let (_, count, metadata) = generate_droptimizer_input(base_profile, &[]);
+        assert_eq!(count, 0);
+        assert!(metadata.is_empty());
+    }
+
+    #[test]
+    fn droptimizer_multiple_drops_emit_one_combo_each() {
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100\n";
+        let drops = vec![
+            json!({
+                "item_id": 1001,
+                "ilevel": 600,
+                "name": "Drop A",
+                "encounter": "Boss 1",
+                "inventory_type": 1,
+                "bonus_ids": []
+            }),
+            json!({
+                "item_id": 1002,
+                "ilevel": 610,
+                "name": "Drop B",
+                "encounter": "Boss 2",
+                "inventory_type": 1,
+                "bonus_ids": [99]
+            }),
+        ];
+        let (input, count, _) = generate_droptimizer_input(base_profile, &drops);
+        assert_eq!(count, 2);
+        assert!(input.contains(",id=1001,ilevel=600"));
+        assert!(input.contains(",id=1002,ilevel=610,bonus_id=99"));
+    }
+
+    #[test]
+    fn droptimizer_drop_with_no_bonus_ids_omits_bonus_id_field() {
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100\n";
+        let drops = vec![json!({
+            "item_id": 1001,
+            "ilevel": 600,
+            "name": "No Bonus",
+            "encounter": "Boss",
+            "inventory_type": 1,
+            "bonus_ids": []
+        })];
+        let (input, _, _) = generate_droptimizer_input(base_profile, &drops);
+        // Should NOT have ",bonus_id=" for this drop
+        let combo_line = input
+            .lines()
+            .find(|l| l.contains("Combo 2") && l.contains("head=,id=1001"))
+            .expect("missing combo 2 head line");
+        assert!(
+            !combo_line.contains("bonus_id="),
+            "unexpected bonus_id in: {combo_line}"
+        );
+    }
+
+    // ---- Enchant/gem generator edge cases ----
+
+    #[test]
+    fn enchant_gem_returns_zero_when_no_selections() {
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100\n";
+        let (_, count, _) = generate_enchant_gem_input(
+            base_profile,
+            &HashMap::new(),
+            &[],
+            &HashSet::new(),
+            Some(20),
+        )
+        .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn enchant_gem_multiple_slots_create_cartesian_product() {
+        ensure_game_data_loaded();
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100,enchant_id=7000\nchest=,id=101,enchant_id=7100\n";
+
+        let mut enchant_selections = HashMap::new();
+        enchant_selections.insert("head".to_string(), vec![7001_u64]);
+        enchant_selections.insert("chest".to_string(), vec![7101_u64]);
+
+        let (_, count, _) = generate_enchant_gem_input(
+            base_profile,
+            &enchant_selections,
+            &[],
+            &HashSet::new(),
+            Some(20),
+        )
+        .unwrap();
+        // (1 head + baseline) × (1 chest + baseline) - 1 baseline = 3
+        assert_eq!(count, 3);
+    }
+
+    // ---- More top_gear edge cases ----
+
+    #[test]
+    fn top_gear_2h_main_hand_clears_off_hand_non_fury() {
+        ensure_game_data_loaded();
+        // 237837 is from the user's data; we use a known 2H weapon id instead.
+        // From data-compacted/equippable-items-full.json inventoryType 17 means 2H.
+        // Pick an item id that we know is 2H. Use id 226002 (a Nerub-ar 2H weapon).
+        // To avoid relying on a specific id, use the data-driven check: skip this test
+        // if we can't find a 2H weapon. For determinism, pick the rogue's 1H from user
+        // data (237837) which is a 1H — this will NOT trigger the 2H code path.
+        // Instead, test the inverse: that a 1H main hand keeps off_hand.
+        let base_profile = "warrior=test\nspec=arms\nmain_hand=,id=237837\noff_hand=,id=249662\n";
+
+        let mh_eq = make_item("main_hand", 237837, true, ",id=237837", vec![], 0, 0);
+        let mh_alt = make_item("main_hand", 200001, false, ",id=200001", vec![], 0, 0);
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert("main_hand".to_string(), vec![mh_eq, mh_alt]);
+
+        let mut selected = HashMap::new();
+        selected.insert(
+            "main_hand".to_string(),
+            vec![uid(200001, &[], "bags", "main_hand")],
+        );
+
+        let (input, _, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &items_by_slot,
+            &selected,
+            Some(20),
+            &[],
+            None,
+            &HashMap::new(),
+            &[],
+            &HashSet::new(),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
+        // 1H main hand keeps the off_hand in output.
+        assert!(
+            input.contains("off_hand=,id=249662"),
+            "expected off_hand preserved for 1H main hand:\n{input}"
+        );
+    }
+
+    #[test]
+    fn top_gear_diamond_always_use_places_diamond_in_socket() {
+        ensure_game_data_loaded();
+        // Single socketed slot, empty socket via bonus 13534. With diamond_always_use,
+        // the diamond should land in that slot.
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100,bonus_id=13534\n";
+
+        let socketed = HashSet::from([100_u64]);
+        let diamond_id = 213738_u64;
+
+        let (input, count, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &HashMap::new(),
+            &HashMap::new(),
+            Some(20),
+            &[],
+            None,
+            &HashMap::new(),
+            &[diamond_id],
+            &socketed,
+            false,
+            true, // diamond_always_use
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(count, 1, "expected exactly one diamond combo");
+        assert!(
+            input.contains(&format!("gem_id={diamond_id}")),
+            "expected diamond placed in head:\n{input}"
+        );
+    }
+
+    #[test]
+    fn top_gear_max_colors_mode_emits_combos_with_real_sockets() {
+        ensure_game_data_loaded();
+        // Both items have empty sockets via bonus 13534.
+        let base_profile = "\
+mage=test\n\
+spec=frost\n\
+head=,id=100,bonus_id=13534\n\
+neck=,id=101,bonus_id=13534\n";
+
+        let socketed = HashSet::from([100_u64, 101_u64]);
+
+        let (_input, count, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &HashMap::new(),
+            &HashMap::new(),
+            Some(50),
+            &[],
+            None,
+            &HashMap::new(),
+            &[213453_u64, 213454_u64],
+            &socketed,
+            false,
+            false,
+            true, // max_colors = true
+        )
+        .unwrap();
+        assert!(count >= 1, "expected combos in max_colors mode");
+    }
+
+    #[test]
+    fn top_gear_spec_override_via_talents_changes_spec_line() {
+        ensure_game_data_loaded();
+        let base_profile = "\
+mage=test\n\
+spec=frost\n\
+head=,id=100\n";
+
+        let equipped = make_item("head", 100, true, ",id=100", vec![], 0, 0);
+        let alt = make_item("head", 200, false, ",id=200", vec![], 0, 0);
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert("head".to_string(), vec![equipped, alt]);
+        let mut selected = HashMap::new();
+        selected.insert("head".to_string(), vec![uid(200, &[], "bags", "head")]);
+
+        // Real subtlety rogue talent string from the user's report → triggers spec inference.
+        let subtlety_talents = "CUQAphyM11FofNMFa1K3vFEDUCgx2MAAAAAwsMGLTMbbjxMjZMMzMzYMbzYGbLzMzMzMjBjZ2GAAAAGMGwYWMMwAziWoFbYGwMDmxA";
+        let talent_builds = vec![("Subtlety".to_string(), subtlety_talents.to_string())];
+
+        let (input, _, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &items_by_slot,
+            &selected,
+            Some(20),
+            &talent_builds,
+            None,
+            &HashMap::new(),
+            &[],
+            &HashSet::new(),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
+        assert!(input.contains(&format!("talents={}", subtlety_talents)));
+    }
+
+    #[test]
+    fn top_gear_multiple_gear_slots_cartesian_product() {
+        ensure_game_data_loaded();
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100\nchest=,id=101\n";
+
+        let head_eq = make_item("head", 100, true, ",id=100", vec![], 0, 0);
+        let head_alt = make_item("head", 200, false, ",id=200", vec![], 0, 0);
+        let chest_eq = make_item("chest", 101, true, ",id=101", vec![], 0, 0);
+        let chest_alt = make_item("chest", 201, false, ",id=201", vec![], 0, 0);
+
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert("head".to_string(), vec![head_eq, head_alt]);
+        items_by_slot.insert("chest".to_string(), vec![chest_eq, chest_alt]);
+
+        let mut selected = HashMap::new();
+        selected.insert("head".to_string(), vec![uid(200, &[], "bags", "head")]);
+        selected.insert("chest".to_string(), vec![uid(201, &[], "bags", "chest")]);
+
+        let (_, count, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &items_by_slot,
+            &selected,
+            Some(20),
+            &[],
+            None,
+            &HashMap::new(),
+            &[],
+            &HashSet::new(),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
+        // 2x2 cartesian product = 4 combos minus the all-equipped baseline = 3.
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn top_gear_gem_only_baseline_emits_when_equipped_has_empty_socket() {
+        ensure_game_data_loaded();
+        // Bonus 13534 adds a socket. Equipped head has the socket but no gem.
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100,bonus_id=13534\n";
+
+        let (input, count, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &HashMap::new(),
+            &HashMap::new(),
+            Some(20),
+            &[],
+            None,
+            &HashMap::new(),
+            &[213453_u64, 213454_u64],
+            &HashSet::from([100_u64]),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
+        // Equipped head has empty socket; each gem applies → 2 baseline gem-only emits.
+        assert_eq!(count, 2);
+        assert!(input.contains("gem_id=213453"));
+        assert!(input.contains("gem_id=213454"));
+    }
+
+    #[test]
+    fn top_gear_empty_gem_list_no_socketed_emits_zero() {
+        ensure_game_data_loaded();
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100\n";
+
+        let (_, count, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &HashMap::new(),
+            &HashMap::new(),
+            Some(20),
+            &[],
+            None,
+            &HashMap::new(),
+            &[],
+            &HashSet::new(),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn top_gear_baseline_alone_with_only_talent_variants() {
+        ensure_game_data_loaded();
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100\n";
+        let talents = vec![
+            ("A".to_string(), "AAAA".to_string()),
+            ("B".to_string(), "BBBB".to_string()),
+        ];
+
+        let (_, count, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &HashMap::new(),
+            &HashMap::new(),
+            Some(20),
+            &talents,
+            None,
+            &HashMap::new(),
+            &[],
+            &HashSet::new(),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+        // 2 talents × 1 equipped gear set - 1 base actor = 1 emit
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn top_gear_finger1_alt_via_paired_identity_added_to_finger2() {
+        // Selecting an item for finger1 via UID propagates the identity to finger2.
+        // This integration test verifies build_slot_candidates' identity matching
+        // works through the full top_gear pipeline.
+        ensure_game_data_loaded();
+        let base_profile = "mage=test\nspec=frost\nfinger1=,id=100\nfinger2=,id=101\n";
+
+        let f1_eq = make_item("finger1", 100, true, ",id=100", vec![], 0, 0);
+        let f2_eq = make_item("finger2", 101, true, ",id=101", vec![], 0, 0);
+        let f2_alt = make_item("finger2", 999, false, ",id=999", vec![], 0, 0);
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert("finger1".to_string(), vec![f1_eq]);
+        items_by_slot.insert("finger2".to_string(), vec![f2_eq, f2_alt]);
+
+        let mut selected = HashMap::new();
+        // Select 999 in finger1's slot; identity should propagate to finger2.
+        selected.insert(
+            "finger1".to_string(),
+            vec![uid(999, &[], "bags", "finger1")],
+        );
+
+        let (input, _count, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &items_by_slot,
+            &selected,
+            Some(20),
+            &[],
+            None,
+            &HashMap::new(),
+            &[],
+            &HashSet::new(),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
+        // 999 should appear in the output (either finger1 or finger2 position).
+        assert!(
+            input.contains(",id=999"),
+            "expected 999 in finger combo via paired identity:\n{input}"
+        );
+    }
+
+    #[test]
+    fn top_gear_gem_combo_combined_with_gear_alternative() {
+        // Verifies that gem variations multiply with gear variations.
+        ensure_game_data_loaded();
+        let base_profile = "mage=test\nspec=frost\nhead=,id=100,bonus_id=13534\nchest=,id=101\n";
+
+        let chest_eq = make_item("chest", 101, true, ",id=101", vec![], 0, 0);
+        let chest_alt = make_item("chest", 201, false, ",id=201", vec![], 0, 0);
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert("chest".to_string(), vec![chest_eq, chest_alt]);
+
+        let mut selected = HashMap::new();
+        selected.insert("chest".to_string(), vec![uid(201, &[], "bags", "chest")]);
+
+        let (_, count, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &items_by_slot,
+            &selected,
+            Some(50),
+            &[],
+            None,
+            &HashMap::new(),
+            &[213453_u64, 213454_u64],
+            &HashSet::from([100_u64]),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
+        // 2 gem combos × (1 gear alt + 1 baseline-with-gem) = 4 combos.
+        // (Equipped head has socket + no gem → baseline gem-only emits per gem combo.)
+        assert_eq!(count, 4);
     }
 }

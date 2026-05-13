@@ -200,3 +200,189 @@ pub fn generate_upgrade_compare_input(
     let combo_count = combo_idx - 2;
     Ok((lines.join("\n"), combo_count, combo_metadata))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn option(simc_str: &str, costs: HashMap<u64, u64>, levels: u64) -> Value {
+        json!({
+            "simc_string": simc_str,
+            "upgrade_costs": costs,
+            "upgrade_levels": levels,
+            "item_id": 100,
+            "ilevel": 600,
+            "name": "Upgraded",
+            "bonus_ids": [],
+            "enchant_id": 0,
+            "gem_id": 0,
+        })
+    }
+
+    #[test]
+    fn returns_error_when_no_slot_options() {
+        let result = generate_upgrade_compare_input(
+            "mage=test\nhead=,id=100\n",
+            &HashMap::new(),
+            &HashMap::new(),
+            Some(10),
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("No upgradeable"));
+    }
+
+    #[test]
+    fn returns_error_when_all_slots_empty() {
+        let mut options = HashMap::new();
+        options.insert("head".to_string(), vec![]);
+        let result = generate_upgrade_compare_input(
+            "mage=test\nhead=,id=100\n",
+            &options,
+            &HashMap::new(),
+            Some(10),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn single_slot_single_upgrade_emits_one_combo() {
+        let mut options = HashMap::new();
+        options.insert(
+            "head".to_string(),
+            vec![option(
+                ",id=100,bonus_id=200",
+                HashMap::from([(1u64, 10u64)]),
+                1,
+            )],
+        );
+        let mut budget = HashMap::new();
+        budget.insert(1, 10);
+
+        let (input, count, metadata) = generate_upgrade_compare_input(
+            "mage=test\nhead=,id=100\n",
+            &options,
+            &budget,
+            Some(10),
+        )
+        .unwrap();
+        assert_eq!(count, 1);
+        assert!(input.contains("profileset.\"Combo 2\"+=head=,id=100,bonus_id=200"));
+        assert!(metadata.contains_key("Combo 2"));
+    }
+
+    #[test]
+    fn upgrade_excluded_when_over_budget() {
+        let mut options = HashMap::new();
+        options.insert(
+            "head".to_string(),
+            vec![option(
+                ",id=100,bonus_id=200",
+                HashMap::from([(1u64, 100u64)]),
+                1,
+            )],
+        );
+        let mut budget = HashMap::new();
+        budget.insert(1, 10); // budget 10, cost 100 — over budget
+
+        let result = generate_upgrade_compare_input(
+            "mage=test\nhead=,id=100\n",
+            &options,
+            &budget,
+            Some(10),
+        )
+        .unwrap();
+        // No upgrade fits — only "keep" combo, which is filtered out.
+        assert_eq!(result.1, 0);
+    }
+
+    #[test]
+    fn dfs_prunes_to_max_budget_spend() {
+        // Two slots; budget allows upgrading exactly one of them.
+        let mut options = HashMap::new();
+        options.insert(
+            "head".to_string(),
+            vec![option(
+                ",id=100,bonus_id=200",
+                HashMap::from([(1u64, 5u64)]),
+                1,
+            )],
+        );
+        options.insert(
+            "chest".to_string(),
+            vec![option(
+                ",id=101,bonus_id=300",
+                HashMap::from([(1u64, 5u64)]),
+                1,
+            )],
+        );
+        let mut budget = HashMap::new();
+        budget.insert(1, 5); // can only afford one upgrade
+
+        let (input, count, _) = generate_upgrade_compare_input(
+            "mage=test\nhead=,id=100\nchest=,id=101\n",
+            &options,
+            &budget,
+            Some(20),
+        )
+        .unwrap();
+        // Best spend = 5 (either head or chest, not both).
+        // DFS retains all max-spend combos: 2.
+        assert_eq!(count, 2);
+        assert!(input.contains("head=,id=100,bonus_id=200") || input.contains("chest=,id=101,bonus_id=300"));
+    }
+
+    #[test]
+    fn upgrade_compare_baseline_in_input() {
+        let mut options = HashMap::new();
+        options.insert(
+            "head".to_string(),
+            vec![option(
+                ",id=100,bonus_id=200",
+                HashMap::from([(1u64, 5u64)]),
+                1,
+            )],
+        );
+        let mut budget = HashMap::new();
+        budget.insert(1, 5);
+
+        let (input, _, _) = generate_upgrade_compare_input(
+            "mage=test\nhead=,id=100\n",
+            &options,
+            &budget,
+            Some(10),
+        )
+        .unwrap();
+        assert!(input.contains("### Combo 1"), "missing baseline combo header");
+        assert!(input.contains("head=,id=100\n"), "baseline should show equipped head");
+    }
+
+    #[test]
+    fn upgrade_metadata_marks_not_kept_and_carries_levels() {
+        let mut options = HashMap::new();
+        options.insert(
+            "head".to_string(),
+            vec![option(
+                ",id=100,bonus_id=200",
+                HashMap::from([(1u64, 5u64)]),
+                3, // upgrade_levels = 3
+            )],
+        );
+        let mut budget = HashMap::new();
+        budget.insert(1, 5);
+
+        let (_, _, metadata) = generate_upgrade_compare_input(
+            "mage=test\nhead=,id=100\n",
+            &options,
+            &budget,
+            Some(10),
+        )
+        .unwrap();
+        let combo = metadata.get("Combo 2").expect("missing combo");
+        let head_meta = combo
+            .iter()
+            .find(|i| i["slot"] == "head")
+            .expect("missing head meta");
+        assert_eq!(head_meta["is_kept"], false);
+        assert_eq!(head_meta["upgrade_levels"], 3);
+    }
+}

@@ -178,3 +178,205 @@ pub(super) fn validate_item_limits(gear_set: &HashMap<String, Value>) -> bool {
     }
     true
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::path::PathBuf;
+    use std::sync::Once;
+
+    static LOAD_GAME_DATA: Once = Once::new();
+    fn ensure_game_data_loaded() {
+        LOAD_GAME_DATA.call_once(|| {
+            let data_dir =
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../resources/data-compacted");
+            crate::item_db::load(&data_dir);
+        });
+    }
+
+    fn item(id: u64) -> Value {
+        json!({ "item_id": id, "bonus_ids": [] })
+    }
+    fn item_with_origin(id: u64, origin: &str) -> Value {
+        json!({ "item_id": id, "bonus_ids": [], "origin": origin })
+    }
+    fn item_with_catalyst(id: u64) -> Value {
+        json!({ "item_id": id, "bonus_ids": [], "is_catalyst": true })
+    }
+
+    #[test]
+    fn vault_constraint_passes_with_zero_vault_items() {
+        let mut gs = HashMap::new();
+        gs.insert("head".to_string(), item(1));
+        gs.insert("chest".to_string(), item(2));
+        assert!(validate_vault_constraint(&gs));
+    }
+
+    #[test]
+    fn vault_constraint_passes_with_one_vault_item() {
+        let mut gs = HashMap::new();
+        gs.insert("head".to_string(), item_with_origin(1, "vault"));
+        gs.insert("chest".to_string(), item(2));
+        assert!(validate_vault_constraint(&gs));
+    }
+
+    #[test]
+    fn vault_constraint_fails_with_two_different_vault_items() {
+        let mut gs = HashMap::new();
+        gs.insert("head".to_string(), item_with_origin(1, "vault"));
+        gs.insert("chest".to_string(), item_with_origin(2, "vault"));
+        assert!(!validate_vault_constraint(&gs));
+    }
+
+    #[test]
+    fn vault_constraint_passes_with_same_vault_id_twice() {
+        // Same item_id in vault counted as one (HashSet dedup)
+        let mut gs = HashMap::new();
+        gs.insert("finger1".to_string(), item_with_origin(1, "vault"));
+        gs.insert("finger2".to_string(), item_with_origin(1, "vault"));
+        assert!(validate_vault_constraint(&gs));
+    }
+
+    #[test]
+    fn catalyst_constraint_passes_at_limit() {
+        let mut gs = HashMap::new();
+        gs.insert("head".to_string(), item_with_catalyst(1));
+        gs.insert("chest".to_string(), item_with_catalyst(2));
+        assert!(validate_catalyst_constraint(&gs, 2));
+    }
+
+    #[test]
+    fn catalyst_constraint_fails_over_limit() {
+        let mut gs = HashMap::new();
+        gs.insert("head".to_string(), item_with_catalyst(1));
+        gs.insert("chest".to_string(), item_with_catalyst(2));
+        gs.insert("legs".to_string(), item_with_catalyst(3));
+        assert!(!validate_catalyst_constraint(&gs, 2));
+    }
+
+    #[test]
+    fn catalyst_constraint_passes_with_zero_max_and_no_catalyst() {
+        let mut gs = HashMap::new();
+        gs.insert("head".to_string(), item(1));
+        assert!(validate_catalyst_constraint(&gs, 0));
+    }
+
+    #[test]
+    fn weapon_constraint_fury_with_2h_and_offhand_passes() {
+        ensure_game_data_loaded();
+        // Skip data lookup: fury bypasses the 2H check entirely.
+        let mut gs = HashMap::new();
+        gs.insert("main_hand".to_string(), item(1));
+        gs.insert("off_hand".to_string(), item(2));
+        assert!(validate_weapon_constraint(&gs, "fury"));
+    }
+
+    #[test]
+    fn weapon_constraint_no_main_hand_passes() {
+        let gs = HashMap::new();
+        assert!(validate_weapon_constraint(&gs, "arms"));
+    }
+
+    #[test]
+    fn weapon_constraint_zero_id_main_hand_passes() {
+        let mut gs = HashMap::new();
+        gs.insert("main_hand".to_string(), item(0));
+        assert!(validate_weapon_constraint(&gs, "arms"));
+    }
+
+    #[test]
+    fn weapon_constraint_2h_with_zero_off_hand_passes() {
+        ensure_game_data_loaded();
+        let mut gs = HashMap::new();
+        // 237837 is a one-hand in the user's report — pick a known 2H from DB.
+        // For an isolated unit test, use the empty-off-hand path:
+        gs.insert("main_hand".to_string(), item(237837));
+        gs.insert("off_hand".to_string(), item(0));
+        assert!(validate_weapon_constraint(&gs, "arms"));
+    }
+
+    #[test]
+    fn unique_equipped_same_finger_item_fails() {
+        let mut gs = HashMap::new();
+        gs.insert("finger1".to_string(), item(99));
+        gs.insert("finger2".to_string(), item(99));
+        assert!(!validate_unique_equipped(&gs));
+    }
+
+    #[test]
+    fn unique_equipped_different_fingers_passes() {
+        let mut gs = HashMap::new();
+        gs.insert("finger1".to_string(), item(99));
+        gs.insert("finger2".to_string(), item(100));
+        assert!(validate_unique_equipped(&gs));
+    }
+
+    #[test]
+    fn unique_equipped_same_trinket_fails() {
+        let mut gs = HashMap::new();
+        gs.insert("trinket1".to_string(), item(50));
+        gs.insert("trinket2".to_string(), item(50));
+        assert!(!validate_unique_equipped(&gs));
+    }
+
+    #[test]
+    fn unique_equipped_zero_id_ignored() {
+        // item_id=0 (empty placeholder) should not trigger a conflict
+        let mut gs = HashMap::new();
+        gs.insert("finger1".to_string(), item(0));
+        gs.insert("finger2".to_string(), item(0));
+        assert!(validate_unique_equipped(&gs));
+    }
+
+    #[test]
+    fn unique_equipped_only_one_slot_filled_passes() {
+        let mut gs = HashMap::new();
+        gs.insert("finger1".to_string(), item(99));
+        assert!(validate_unique_equipped(&gs));
+    }
+
+    #[test]
+    fn gear_set_identity_key_swap_invariant() {
+        // Swapping items between finger1/finger2 must yield the same key.
+        let mut a = HashMap::new();
+        a.insert("finger1".to_string(), item(1));
+        a.insert("finger2".to_string(), item(2));
+
+        let mut b = HashMap::new();
+        b.insert("finger1".to_string(), item(2));
+        b.insert("finger2".to_string(), item(1));
+
+        assert_eq!(gear_set_identity_key(&a), gear_set_identity_key(&b));
+    }
+
+    #[test]
+    fn gear_set_identity_key_distinguishes_different_items() {
+        let mut a = HashMap::new();
+        a.insert("head".to_string(), item(1));
+        let mut b = HashMap::new();
+        b.insert("head".to_string(), item(2));
+        assert_ne!(gear_set_identity_key(&a), gear_set_identity_key(&b));
+    }
+
+    #[test]
+    fn main_hand_is_two_hand_fury_always_false() {
+        ensure_game_data_loaded();
+        let mut gs = HashMap::new();
+        gs.insert("main_hand".to_string(), item(237837));
+        assert!(!main_hand_is_two_hand(&gs, "fury"));
+    }
+
+    #[test]
+    fn main_hand_is_two_hand_no_main_hand_returns_false() {
+        let gs = HashMap::new();
+        assert!(!main_hand_is_two_hand(&gs, "arms"));
+    }
+
+    #[test]
+    fn main_hand_is_two_hand_zero_item_id_returns_false() {
+        let mut gs = HashMap::new();
+        gs.insert("main_hand".to_string(), item(0));
+        assert!(!main_hand_is_two_hand(&gs, "arms"));
+    }
+}

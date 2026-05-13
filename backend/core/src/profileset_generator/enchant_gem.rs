@@ -213,3 +213,140 @@ pub(super) fn generate_enchant_gem_input(
 
     Ok((lines.join("\n"), combo_count, combo_metadata))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::sync::Once;
+
+    static LOAD_GAME_DATA: Once = Once::new();
+    fn ensure_game_data_loaded() {
+        LOAD_GAME_DATA.call_once(|| {
+            let data_dir =
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../resources/data-compacted");
+            crate::item_db::load(&data_dir);
+        });
+    }
+
+    #[test]
+    fn enchant_axis_with_only_current_enchant_skipped() {
+        // Selection equals the currently-equipped enchant → no real variation.
+        ensure_game_data_loaded();
+        let profile = "mage=test\nhead=,id=100,enchant_id=7777\n";
+        let mut selections = HashMap::new();
+        selections.insert("head".to_string(), vec![7777_u64]);
+        let (_, count, _) = generate_enchant_gem_input(
+            profile,
+            &selections,
+            &[],
+            &HashSet::new(),
+            Some(20),
+        )
+        .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn slot_without_equipped_gear_skipped() {
+        ensure_game_data_loaded();
+        let profile = "mage=test\nhead=,id=100\n"; // only head, no chest
+        let mut selections = HashMap::new();
+        selections.insert("chest".to_string(), vec![9001_u64]);
+        let (_, count, _) = generate_enchant_gem_input(
+            profile,
+            &selections,
+            &[],
+            &HashSet::new(),
+            Some(20),
+        )
+        .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn max_combinations_limit_triggers_error() {
+        ensure_game_data_loaded();
+        let profile = "mage=test\nhead=,id=100,enchant_id=7000\nchest=,id=101,enchant_id=7100\nlegs=,id=102,enchant_id=7200\n";
+        let mut selections = HashMap::new();
+        selections.insert("head".to_string(), vec![7001, 7002, 7003]);
+        selections.insert("chest".to_string(), vec![7101, 7102, 7103]);
+        selections.insert("legs".to_string(), vec![7201, 7202, 7203]);
+        // 4x4x4 - 1 baseline = 63 combos
+        let result = generate_enchant_gem_input(
+            profile,
+            &selections,
+            &[],
+            &HashSet::new(),
+            Some(10),
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Too many combinations"));
+    }
+
+    #[test]
+    fn gem_axis_applies_to_socketed_empty_slot() {
+        ensure_game_data_loaded();
+        let profile = "mage=test\nhead=,id=100\n"; // no gem on head
+        // Only socketed_item_ids decides eligibility — pass head's id.
+        let (input, count, _) = generate_enchant_gem_input(
+            profile,
+            &HashMap::new(),
+            &[213453_u64, 213454_u64],
+            &HashSet::from([100_u64]),
+            Some(20),
+        )
+        .unwrap();
+        // 2 gem options, no baseline filter (gem axis has no baseline-equipped entry)
+        // The axis has options [213453, 213454]; baseline = [0]; combos = [[0],[1]] minus baseline = 1.
+        assert_eq!(count, 1);
+        assert!(input.contains("gem_id=213454"));
+    }
+
+    #[test]
+    fn gem_axis_skips_already_gemmed_slots() {
+        ensure_game_data_loaded();
+        let profile = "mage=test\nhead=,id=100,gem_id=213453\n";
+        let (input, _, _) = generate_enchant_gem_input(
+            profile,
+            &HashMap::new(),
+            &[213454_u64],
+            &HashSet::from([100_u64]),
+            Some(20),
+        )
+        .unwrap();
+        // Slot already has gem (gem_id != 0) → not in scope; no profileset emitted with gem 213454
+        assert!(!input.contains("profileset.\"Combo 2\"+=head=,id=100,gem_id=213454"));
+    }
+
+    #[test]
+    fn empty_gem_list_with_no_enchants_returns_zero() {
+        let profile = "mage=test\nhead=,id=100\n";
+        let (_, count, _) = generate_enchant_gem_input(
+            profile,
+            &HashMap::new(),
+            &[],
+            &HashSet::new(),
+            Some(20),
+        )
+        .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn baseline_metadata_entry_is_currently_equipped() {
+        ensure_game_data_loaded();
+        let profile = "mage=test\nhead=,id=100,enchant_id=7000\n";
+        let mut selections = HashMap::new();
+        selections.insert("head".to_string(), vec![7001_u64]);
+        let (_, _, metadata) = generate_enchant_gem_input(
+            profile,
+            &selections,
+            &[],
+            &HashSet::new(),
+            Some(20),
+        )
+        .unwrap();
+        assert!(metadata.contains_key("Currently Equipped"));
+    }
+}
