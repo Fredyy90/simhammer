@@ -179,15 +179,6 @@ export default function SimcEngineSection() {
               <div className="ml-4 flex-1">
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-semibold capitalize">{branch}</p>
-                  {branch === 'nightly' && (
-                    <svg
-                      className="h-3.5 w-3.5 text-error/70"
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                    >
-                      <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
-                    </svg>
-                  )}
                 </div>
                 {installed ? (
                   <p className="text-[10px] text-on-surface-variant/70">
