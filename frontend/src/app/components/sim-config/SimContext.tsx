@@ -56,6 +56,9 @@ interface SimContextType {
   addScenario: () => void;
   removeScenario: (id: string) => void;
   clearScenarios: () => void;
+  // Profileset parallelism toggle (for A/B testing the SimC perf flag).
+  parallelProfilesets: boolean;
+  setParallelProfilesets: (v: boolean) => void;
 }
 
 const SimContext = createContext<SimContextType | null>(null);
@@ -133,6 +136,7 @@ export function SimProvider({ children }: { children: ReactNode }) {
   const [simcBranch, _setSimcBranch] = useState('');
   const [talentBuilds, setTalentBuilds] = useState<{ name: string; talentString: string }[]>([]);
   const [scenarios, setScenarios] = useState<FightScenario[]>([]);
+  const [parallelProfilesets, setParallelProfilesets] = useState(true);
 
   useEffect(() => {
     try {
@@ -284,6 +288,8 @@ export function SimProvider({ children }: { children: ReactNode }) {
         addScenario,
         removeScenario,
         clearScenarios,
+        parallelProfilesets,
+        setParallelProfilesets,
       }}
     >
       {children}

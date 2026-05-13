@@ -67,6 +67,10 @@ pub struct SimOptions {
     pub simc_post_combos: String,
     #[serde(default)]
     pub simc_footer: String,
+    /// When set, forces profileset parallelism on (Some(true)) or off (Some(false)).
+    /// When None, falls back to the combo-count threshold in build_full_simc_input.
+    #[serde(default)]
+    pub parallel_profilesets: Option<bool>,
 }
 
 impl SimOptions {
@@ -100,6 +104,9 @@ impl SimOptions {
         }
         if self.rotation_mode != RotationMode::Default {
             v["rotation_mode"] = json!(self.rotation_mode);
+        }
+        if let Some(b) = self.parallel_profilesets {
+            v["parallel_profilesets"] = json!(b);
         }
         v
     }

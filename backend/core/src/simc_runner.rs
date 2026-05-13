@@ -444,6 +444,29 @@ pub fn build_full_simc_input(
     }
     result.push_str(&format!("target_error={}\n", target_error));
 
+    // Run profilesets in parallel (each on one thread) instead of the default
+    // sequential mode where each profileset uses all iteration threads. Whether
+    // this wins depends on iteration count per profileset, which target_error
+    // controls. Measured on a 19-thread box:
+    //   te=1.0  (≈150 iters/profileset)   → pwt=1 is 2.5× faster (sync overhead dominates)
+    //   te=0.2  (≈1.5k iters/profileset)  → roughly equal (within noise)
+    //   te=0.05 (≈14k iters/profileset)   → pwt=1 is 12% slower (iter parallelism wins)
+    // Cutoff at te > 0.2 enables pwt=1 only for the early staged Top Gear stages
+    // (Probe/Coarse/Refine) where the win is clear. Medium (te=0.2) and below are
+    // marginal or slower, so we leave SimC's default sequential mode in place.
+    // The `parallel_profilesets` option overrides this for A/B testing.
+    let combo_count = simc_input
+        .lines()
+        .filter(|l| l.trim_start().starts_with("### Combo "))
+        .count();
+    let enable_parallel = match options.get("parallel_profilesets").and_then(|v| v.as_bool()) {
+        Some(b) => b,
+        None => combo_count >= 4 && target_error > 0.2,
+    };
+    if enable_parallel {
+        result.push_str("profileset_work_threads=1\n");
+    }
+
     result
 }
 

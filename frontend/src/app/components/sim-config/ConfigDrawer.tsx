@@ -54,6 +54,8 @@ export default function ConfigDrawer({
     setSimcFooter,
     simcBranch,
     setSimcBranch,
+    parallelProfilesets,
+    setParallelProfilesets,
   } = useSimContext();
 
   useEffect(() => {
@@ -326,6 +328,29 @@ export default function ConfigDrawer({
                 <p className="text-[11px] text-on-surface-variant/40">
                   Lower = more precise but slower. Default: 0.05%
                 </p>
+              </div>
+              <div className="space-y-2 border-t border-outline-variant/10 pt-3">
+                <label className="flex cursor-pointer items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={parallelProfilesets}
+                    onChange={(event) => setParallelProfilesets(event.target.checked)}
+                    className="mt-0.5 h-4 w-4 accent-primary"
+                  />
+                  <div className="flex-1">
+                    <div className="text-[11px] font-bold uppercase tracking-widest text-on-surface-variant">
+                      Parallel profileset scheduling
+                    </div>
+                    <p className="mt-1 text-[11px] text-on-surface-variant/40">
+                      When enabled, SimHammer adds{' '}
+                      <code className="font-mono text-on-surface-variant/70">profileset_work_threads=1</code>{' '}
+                      to early Top Gear stages (4+ combos at target_error &gt; 0.2), running profilesets
+                      concurrently instead of sequentially. Measured to be modestly faster on those stages;
+                      disabled at tighter precision where iteration parallelism wins. Uncheck to never emit
+                      the flag.
+                    </p>
+                  </div>
+                </label>
               </div>
             </ExpertToggle>
           </div>
