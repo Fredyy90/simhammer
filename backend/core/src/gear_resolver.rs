@@ -144,6 +144,8 @@ fn enrich(item: &RawParsedItem, slot: &str) -> ResolvedItem {
         season_id,
         is_catalyst: false,
         can_catalyst: false,
+        is_void_forge: false,
+        can_void_forge: false,
     }
 }
 
@@ -372,6 +374,9 @@ fn resolve_gear_impl(
         mark_catalyst_eligible(&mut slots, class_id);
     }
 
+    // Mark items eligible for Void Forge conversion (per-item button).
+    mark_void_forge_eligible(&mut slots);
+
     // Catalyst pass: generate tier alternatives for non-tier items in tier slots
     if catalyst_charges.is_some() {
         if let Some(class_id) = class_data::class_wow_id(class_name) {
@@ -499,6 +504,8 @@ pub fn build_catalyst_item(
         season_id: source.season_id,
         is_catalyst: true,
         can_catalyst: false,
+        is_void_forge: false,
+        can_void_forge: false,
     }
 }
 
@@ -630,5 +637,155 @@ fn generate_catalyst_alternatives(slots: &mut HashMap<String, SlotResolution>, w
                 slot_res.alternatives.push(catalyst_item);
             }
         }
+    }
+}
+
+/// Build a Void Forge variant of a source item: same item_id, swapped bonus_id,
+/// recomputed ilevel and simc_string, tag and upgrade fields refreshed from the
+/// VF bonus entry so the UI can distinguish it from the base item.
+pub fn build_void_forge_item(source: &ResolvedItem, vf_bonus_id: u64) -> ResolvedItem {
+    use regex::Regex;
+
+    // Replace the matching base bonus_id with the VF variant.
+    let vf_map = item_db::void_forge_map();
+    let mut new_bonus_ids: Vec<u64> = source
+        .bonus_ids
+        .iter()
+        .map(|b| vf_map.get(b).copied().unwrap_or(*b))
+        .collect();
+    new_bonus_ids.sort();
+
+    // Recompute ilvl + tag + upgrade from the VF bonus entry.
+    let mut ilevel = source.ilevel;
+    let mut tag = source.tag.clone();
+    let mut upgrade = source.upgrade.clone();
+    if let Some(vf_value) = item_db::bonuses().get(&vf_bonus_id) {
+        if let Some(amount) = vf_value
+            .get("itemLevel")
+            .and_then(|i| i.get("amount"))
+            .and_then(|a| a.as_u64())
+        {
+            ilevel = amount;
+        }
+        if let Some(t) = vf_value.get("tag").and_then(|t| t.as_str()) {
+            tag = t.to_string();
+        }
+        if let Some(u) = vf_value.get("upgrade").and_then(|u| u.as_str()) {
+            upgrade = u.to_string();
+        } else {
+            upgrade = String::new();
+        }
+    }
+
+    // Rewrite bonus_id=... in simc_string.
+    let bonus_id_re = Regex::new(r"bonus_id=([0-9/]+)").unwrap();
+    let bonus_id_str = new_bonus_ids
+        .iter()
+        .map(u64::to_string)
+        .collect::<Vec<_>>()
+        .join("/");
+    let new_simc = bonus_id_re
+        .replace(&source.simc_string, format!("bonus_id={}", bonus_id_str))
+        .to_string();
+
+    // Compute fresh uid based on the NEW bonus_ids — must match the frontend's
+    // deterministic format (itemId:sortedBonusIds:origin:slot). Inheriting the
+    // source's uid via ..source.clone() would collide with the base item and
+    // make the VF alternative invisible to combo selection.
+    let bonus_key = new_bonus_ids
+        .iter()
+        .map(|b| b.to_string())
+        .collect::<Vec<_>>()
+        .join(":");
+    let uid = format!(
+        "{}:{}:{}:{}",
+        source.item_id,
+        bonus_key,
+        source.origin.as_str(),
+        source.slot
+    );
+
+    ResolvedItem {
+        uid,
+        bonus_ids: new_bonus_ids,
+        ilevel,
+        tag,
+        upgrade,
+        simc_string: new_simc,
+        is_void_forge: true,
+        can_void_forge: false,
+        // Everything else copied from source — same item, just upgraded
+        ..source.clone()
+    }
+}
+
+/// Mark weapons and trinkets that have a Void Forge map key as `can_void_forge = true`.
+/// This drives the per-item "Convert to Void Forge" button visibility on the frontend.
+pub fn mark_void_forge_eligible(slots: &mut HashMap<String, SlotResolution>) {
+    const VF_SLOTS: &[&str] = &["main_hand", "off_hand", "trinket1", "trinket2"];
+    let vf_map = item_db::void_forge_map();
+    if vf_map.is_empty() {
+        return;
+    }
+
+    let mark = |item: &mut ResolvedItem| {
+        if item.is_void_forge {
+            return;
+        }
+        if !VF_SLOTS.contains(&item.slot.as_str()) {
+            return;
+        }
+        if item.bonus_ids.iter().any(|b| vf_map.contains_key(b)) {
+            item.can_void_forge = true;
+        }
+    };
+
+    for slot in slots.values_mut() {
+        if let Some(eq) = slot.equipped.as_mut() {
+            mark(eq);
+        }
+        for alt in slot.alternatives.iter_mut() {
+            mark(alt);
+        }
+    }
+}
+
+/// Generate Void Forge variants for weapons and trinkets whose bonus_ids
+/// contain a VF map key. Appends to each slot's alternatives.
+pub fn generate_void_forge_alternatives(slots: &mut HashMap<String, SlotResolution>) {
+    const VF_SLOTS: &[&str] = &["main_hand", "off_hand", "trinket1", "trinket2"];
+    let vf_map = item_db::void_forge_map();
+    if vf_map.is_empty() {
+        return;
+    }
+
+    for slot_name in VF_SLOTS {
+        let Some(slot_res) = slots.get_mut(*slot_name) else {
+            continue;
+        };
+
+        // Collect VF variants from both equipped and alternatives (but not from
+        // existing catalyst variants — VF a catalyst-converted item is out of scope).
+        let mut additions: Vec<ResolvedItem> = Vec::new();
+        let mut consider = |item: &ResolvedItem| {
+            if item.is_void_forge || item.is_catalyst {
+                return;
+            }
+            // Find the first VF-mapped bonus_id on this item.
+            let Some(vf_target) = item.bonus_ids.iter().find_map(|b| vf_map.get(b).copied())
+            else {
+                return;
+            };
+            additions.push(build_void_forge_item(item, vf_target));
+        };
+
+        if let Some(eq) = slot_res.equipped.as_ref() {
+            consider(eq);
+        }
+        for alt in slot_res.alternatives.iter() {
+            consider(alt);
+        }
+
+        slot_res.alternatives.extend(additions);
     }
 }

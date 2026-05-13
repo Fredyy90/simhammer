@@ -32,6 +32,7 @@ interface TopGearGroupCardProps {
   onUpgradeClick: (item: ResolvedItem, key: string) => void;
   onUpgradeSelect: (item: ResolvedItem, option: UpgradeOption) => void;
   onCatalystConvert: (item: ResolvedItem) => void;
+  onVoidForgeConvert: (item: ResolvedItem) => void;
   onAddSocket: (item: ResolvedItem) => void;
   onRemoveGem: (item: ResolvedItem) => void;
   t: (key: string, values?: Record<string, string | number>) => string;
@@ -68,6 +69,7 @@ export default function TopGearGroupCard({
   onUpgradeClick,
   onUpgradeSelect,
   onCatalystConvert,
+  onVoidForgeConvert,
   onAddSocket,
   onRemoveGem,
   t,
@@ -98,6 +100,9 @@ export default function TopGearGroupCard({
             onUpgradeClick={() => onUpgradeClick(item, item.uid)}
             onUpgradeSelect={(option) => onUpgradeSelect(item, option)}
             onCatalystConvert={item.can_catalyst ? () => onCatalystConvert(item) : undefined}
+            onVoidForgeConvert={
+              item.can_void_forge ? () => onVoidForgeConvert(item) : undefined
+            }
             onAddSocket={canAddSocket(item) ? () => onAddSocket(item) : undefined}
             onRemoveGem={item.gem_id > 0 ? () => onRemoveGem(item) : undefined}
             t={t}
@@ -123,6 +128,7 @@ export default function TopGearGroupCard({
           vault={item.origin === 'vault'}
           loot={item.origin === 'loot'}
           catalyst={item.is_catalyst}
+          voidForge={item.is_void_forge}
           href={item.item_id > 0 ? getWowheadUrl(item.item_id, locale) : undefined}
           wowheadData={item.item_id > 0 ? getWowheadData(item) : undefined}
         >
@@ -134,6 +140,9 @@ export default function TopGearGroupCard({
             onUpgradeClick={() => onUpgradeClick(item, item.uid)}
             onUpgradeSelect={(option) => onUpgradeSelect(item, option)}
             onCatalystConvert={item.can_catalyst ? () => onCatalystConvert(item) : undefined}
+            onVoidForgeConvert={
+              item.can_void_forge ? () => onVoidForgeConvert(item) : undefined
+            }
             onAddSocket={canAddSocket(item) ? () => onAddSocket(item) : undefined}
             onRemoveGem={item.gem_id > 0 ? () => onRemoveGem(item) : undefined}
             t={t}
@@ -152,6 +161,7 @@ function UpgradeButton({
   onUpgradeClick,
   onUpgradeSelect,
   onCatalystConvert,
+  onVoidForgeConvert,
   onAddSocket,
   onRemoveGem,
   t,
@@ -163,11 +173,13 @@ function UpgradeButton({
   onUpgradeClick: () => void;
   onUpgradeSelect: (opt: UpgradeOption) => void;
   onCatalystConvert?: () => void;
+  onVoidForgeConvert?: () => void;
   onAddSocket?: () => void;
   onRemoveGem?: () => void;
   t: (key: string, values?: Record<string, string | number>) => string;
 }) {
-  if (!item.upgrade && !onCatalystConvert && !onAddSocket && !onRemoveGem) return null;
+  if (!item.upgrade && !onCatalystConvert && !onVoidForgeConvert && !onAddSocket && !onRemoveGem)
+    return null;
   const isMenuOpen = upgradeMenuFor === item.uid;
 
   return (
@@ -213,6 +225,22 @@ function UpgradeButton({
                 <path d="M8 1a1 1 0 011 1v2.07A5.001 5.001 0 0113 9a5 5 0 01-10 0 5.001 5.001 0 014-4.93V2a1 1 0 011-1zm0 5a3 3 0 100 6 3 3 0 000-6z" />
               </svg>
               {t('gear.convertToCatalyst')}
+            </button>
+          )}
+          {onVoidForgeConvert && (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                event.preventDefault();
+                onVoidForgeConvert();
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] text-violet-300 hover:bg-violet-500/10 hover:text-violet-200"
+            >
+              <svg className="h-3 w-3 shrink-0" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 1a1 1 0 011 1v2.07A5.001 5.001 0 0113 9a5 5 0 01-10 0 5.001 5.001 0 014-4.93V2a1 1 0 011-1zm0 5a3 3 0 100 6 3 3 0 000-6z" />
+              </svg>
+              {t('gear.convertToVoidForge')}
             </button>
           )}
           {onAddSocket && (
@@ -263,9 +291,8 @@ function UpgradeButton({
               {t('gear.removeGem')}
             </button>
           )}
-          {(onCatalystConvert || onAddSocket || onRemoveGem) && item.upgrade && (
-            <div className="my-1 border-t border-outline-variant/20" />
-          )}
+          {(onCatalystConvert || onVoidForgeConvert || onAddSocket || onRemoveGem) &&
+            item.upgrade && <div className="my-1 border-t border-outline-variant/20" />}
           {item.upgrade && (
             <>
               {loadingUpgrades ? (

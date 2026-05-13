@@ -150,6 +150,7 @@
   "gear.greatVault": "Great Vault",
   "gear.addUpgradedCopy": "Add copy at different upgrade level",
   "gear.convertToCatalyst": "Convert to Catalyst",
+  "gear.convertToVoidForge": "Convert to Void Forge",
   "gear.addSocket": "Add Socket",
   "gear.removeGem": "Remove Gem",
   "gear.noUpgradeOptions": "No options",
@@ -298,6 +299,7 @@
   "topGear.revivalCatalystTooltip": "Add tier-set versions of your raid gear to the comparison. Only considers pieces that would be an upgrade.",
   "topGear.charges": "charges",
   "topGear.chargesTooltip": "How many catalyst pieces can be worn at the same time in a single gear set.",
+  "topGear.voidForge": "Void Forge weapons & trinkets",
 
   "dropFinder.source": "Source",
   "dropFinder.selectRaid": "Select Raid",

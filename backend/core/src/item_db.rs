@@ -63,6 +63,8 @@ static SEASON_CONFIG: OnceCell<Value> = OnceCell::new();
 static TALENT_TREES: OnceCell<HashMap<u64, Value>> = OnceCell::new();
 /// Localized item names: item_id → { locale → name }
 static ITEM_NAMES: OnceCell<HashMap<u64, HashMap<String, String>>> = OnceCell::new();
+/// Void Forge map: max-upgrade base bonus_id → voidforged bonus_id
+static VOID_FORGE_MAP: OnceCell<HashMap<u64, u64>> = OnceCell::new();
 
 /// Catalyst item info for a specific class + slot combination.
 #[derive(Debug, Clone)]
@@ -93,6 +95,53 @@ static AUGMENTS: OnceCell<Vec<Value>> = OnceCell::new();
 static TEMP_ENCHANTS: OnceCell<Vec<Value>> = OnceCell::new();
 
 // ---- Load ----
+
+fn build_void_forge_map() -> HashMap<u64, u64> {
+    use regex::Regex;
+    let bonuses = match BONUSES.get() {
+        Some(b) => b,
+        None => return HashMap::new(),
+    };
+
+    // First pass: collect "Voidforged: <Tier>" entries.
+    // Pattern matches "Ascendant Voidforged: Myth", "Galactic Void-Charged: Hero", etc.
+    let tag_re = Regex::new(r"^(?:Ascendant|Galactic)\s+Void(?:forged|-Charged):\s*(\w+)$").unwrap();
+    let mut vf_by_tier: HashMap<String, u64> = HashMap::new();
+    for (bonus_id, value) in bonuses.iter() {
+        if let Some(tag) = value.get("tag").and_then(|t| t.as_str()) {
+            if let Some(caps) = tag_re.captures(tag) {
+                let tier = caps[1].to_string();
+                vf_by_tier.insert(tier, *bonus_id);
+            }
+        }
+    }
+
+    if vf_by_tier.is_empty() {
+        return HashMap::new();
+    }
+
+    // Second pass: for each base bonus where upgrade.fullName == "<Tier> 6/6",
+    // map base_bonus_id -> vf_bonus_id.
+    let mut map: HashMap<u64, u64> = HashMap::new();
+    for (base_id, value) in bonuses.iter() {
+        let full_name = value
+            .get("upgrade")
+            .and_then(|u| u.get("fullName"))
+            .and_then(|n| n.as_str());
+        let Some(full_name) = full_name else { continue };
+        // Expect "<Tier> N/M" — match only the max step (e.g. "Myth 6/6")
+        let Some((tier, step)) = full_name.split_once(' ') else { continue };
+        let Some((cur, max)) = step.split_once('/') else { continue };
+        if cur != max {
+            continue;
+        }
+        if let Some(vf_id) = vf_by_tier.get(tier) {
+            map.insert(*base_id, *vf_id);
+        }
+    }
+
+    map
+}
 
 pub fn load(data_dir: &Path) {
     // equippable-items-full.json
@@ -191,6 +240,10 @@ pub fn load(data_dir: &Path) {
         );
         let _ = BONUSES.set(map);
         let _ = UPGRADE_MAX.set(upgrade_max);
+
+        let vf_map = build_void_forge_map();
+        println!("Derived {} void forge mappings", vf_map.len());
+        let _ = VOID_FORGE_MAP.set(vf_map);
     }
 
     // bonus-upgrade-sets.json + seasons.json -> upgrade track lookup
@@ -625,6 +678,10 @@ pub fn enchants_by_item_id() -> &'static HashMap<u64, Value> {
 
 pub fn bonuses() -> &'static HashMap<u64, Value> {
     BONUSES.get().expect("Game data not loaded")
+}
+
+pub fn void_forge_map() -> &'static HashMap<u64, u64> {
+    VOID_FORGE_MAP.get_or_init(HashMap::new)
 }
 
 fn upgrade_max() -> &'static HashMap<u64, u64> {

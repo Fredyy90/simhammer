@@ -93,6 +93,7 @@ export default function TopGearScreen() {
   const [copyEnchants, setCopyEnchants] = useState(true);
   const [catalyst, setCatalyst] = useState(false);
   const [catalystCharges, setCatalystCharges] = useState<number | null>(null);
+  const [voidForge, _setVoidForge] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [comboCount, setComboCount] = useState(0);
   const [comboError, setComboError] = useState('');
@@ -104,6 +105,7 @@ export default function TopGearScreen() {
   const prevInputRef = useRef('');
   const prevUpgradeRef = useRef(false);
   const prevCatalystRef = useRef(false);
+  const prevVoidForgeRef = useRef(false);
   const restoringRef = useRef(false);
   const localItemsRef = useRef(localItems);
   localItemsRef.current = localItems;
@@ -138,12 +140,20 @@ export default function TopGearScreen() {
   }, []);
 
   useEffect(() => {
+    try {
+      const storedVoidForge = localStorage.getItem('simhammer_void_forge');
+      if (storedVoidForge === 'true') _setVoidForge(true);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
     const trimmed = simcInput.trim();
     const inputChanged = trimmed !== prevInputRef.current;
     const upgradeChanged = maxUpgrade !== prevUpgradeRef.current;
     const catalystChanged = catalyst !== prevCatalystRef.current;
+    const voidForgeChanged = voidForge !== prevVoidForgeRef.current;
 
-    if (!inputChanged && !upgradeChanged && !catalystChanged) return;
+    if (!inputChanged && !upgradeChanged && !catalystChanged && !voidForgeChanged) return;
 
     if (trimmed.length < 10) {
       setResolved(null);
@@ -151,6 +161,7 @@ export default function TopGearScreen() {
       prevInputRef.current = trimmed;
       prevUpgradeRef.current = maxUpgrade;
       prevCatalystRef.current = catalyst;
+      prevVoidForgeRef.current = voidForge;
       return;
     }
 
@@ -159,6 +170,7 @@ export default function TopGearScreen() {
         prevInputRef.current = trimmed;
         prevUpgradeRef.current = maxUpgrade;
         prevCatalystRef.current = catalyst;
+        prevVoidForgeRef.current = voidForge;
         setResolving(true);
 
         try {
@@ -166,7 +178,12 @@ export default function TopGearScreen() {
           const response = await fetch(`${API_URL}/api/gear/resolve`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ simc_input: resolveInput, max_upgrade: maxUpgrade, catalyst }),
+            body: JSON.stringify({
+              simc_input: resolveInput,
+              max_upgrade: maxUpgrade,
+              catalyst,
+              void_forge: voidForge,
+            }),
           });
 
           if (!response.ok) {
@@ -203,7 +220,7 @@ export default function TopGearScreen() {
     );
 
     return () => clearTimeout(timer);
-  }, [simcInput, maxUpgrade, catalyst]);
+  }, [simcInput, maxUpgrade, catalyst, voidForge]);
 
   const equippedSlots = useMemo<Record<string, ResolvedItem>>(() => {
     if (!resolved) return {};
@@ -262,11 +279,26 @@ export default function TopGearScreen() {
     });
   }, []);
 
+  const setVoidForge = useCallback((v: boolean) => {
+    _setVoidForge(v);
+    try {
+      localStorage.setItem('simhammer_void_forge', String(v));
+    } catch {}
+  }, []);
+
   const submitInput = useMemo(
     () => appendLocalItems(simcInput, localItems),
     [simcInput, localItems]
   );
   const selectedItemsJson = useMemo(() => buildSelectedUidsJson(selectedUids), [selectedUids]);
+  const hasVoidForgeItems = useMemo(() => {
+    if (!resolved?.slots) return false;
+    return Object.values(resolved.slots).some(
+      (slot) =>
+        slot.equipped?.is_void_forge === true ||
+        slot.alternatives.some((alt) => alt.is_void_forge === true)
+    );
+  }, [resolved]);
 
   useEffect(() => {
     const hasGearSelection = Object.values(selectedUids).some((values) => values.size > 0);
@@ -308,6 +340,7 @@ export default function TopGearScreen() {
             replace_gems: replaceGems,
             diamond_always_use: diamondAlwaysUse,
             max_colors: maxColors,
+            ...(voidForge || hasVoidForgeItems ? { void_forge: true } : {}),
           }),
           signal: controller.signal,
         });
@@ -346,6 +379,8 @@ export default function TopGearScreen() {
     replaceGems,
     diamondAlwaysUse,
     maxColors,
+    voidForge,
+    hasVoidForgeItems,
     t,
   ]);
 
@@ -371,6 +406,7 @@ export default function TopGearScreen() {
       replace_gems: replaceGems,
       diamond_always_use: diamondAlwaysUse,
       max_colors: maxColors,
+      ...(voidForge || hasVoidForgeItems ? { void_forge: true } : {}),
     }),
     [
       submitInput,
@@ -386,6 +422,8 @@ export default function TopGearScreen() {
       replaceGems,
       diamondAlwaysUse,
       maxColors,
+      voidForge,
+      hasVoidForgeItems,
     ]
   );
 
@@ -488,6 +526,12 @@ export default function TopGearScreen() {
             </div>
           </>
         )}
+        <span className="h-5 w-px bg-outline-variant/20" />
+        <Toggle
+          checked={voidForge}
+          onChange={setVoidForge}
+          label={t('topGear.voidForge')}
+        />
       </div>
 
       {!resolved ? (

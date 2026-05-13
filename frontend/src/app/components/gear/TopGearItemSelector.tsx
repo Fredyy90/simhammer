@@ -134,6 +134,27 @@ export default function TopGearItemSelector({
     [resolved, onResolvedChange, selectedUids, onSelectionChange]
   );
 
+  const convertToVoidForge = useCallback(
+    async (item: ResolvedItem) => {
+      setUpgradeMenuFor(null);
+      try {
+        const response = await fetch(`${API_URL}/api/gear/void-forge-convert`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item }),
+        });
+        if (!response.ok) return;
+
+        const vfItem: ResolvedItem = await response.json();
+        onResolvedChange(mergeAlternative(resolved, item.slot, vfItem));
+        onSelectionChange(selectAlternative(selectedUids, item.slot, vfItem.uid));
+      } catch {
+        // Intentionally ignored so the selector stays usable.
+      }
+    },
+    [resolved, onResolvedChange, selectedUids, onSelectionChange]
+  );
+
   const addUpgradedCopy = useCallback(
     (item: ResolvedItem, option: UpgradeOption) => {
       const currentUpgradeBonusId = upgradeOptions.find((entry) =>
@@ -328,6 +349,7 @@ export default function TopGearItemSelector({
             onUpgradeClick={openUpgradeMenu}
             onUpgradeSelect={addUpgradedCopy}
             onCatalystConvert={convertToCatalyst}
+            onVoidForgeConvert={convertToVoidForge}
             onAddSocket={addSocketCopy}
             onRemoveGem={removeGemCopy}
             t={t}

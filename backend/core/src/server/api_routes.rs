@@ -126,6 +126,10 @@ pub(super) fn configure(cfg: &mut web::ServiceConfig) {
             web::post().to(game_data_handlers::catalyst_convert),
         )
         .route(
+            "/api/gear/void-forge-convert",
+            web::post().to(game_data_handlers::void_forge_convert),
+        )
+        .route(
             "/api/season-config",
             web::get().to(game_data_handlers::get_season_config),
         )

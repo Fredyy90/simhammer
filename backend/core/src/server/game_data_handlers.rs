@@ -189,6 +189,9 @@ pub(super) async fn resolve_gear(req: web::Json<ResolveGearRequest>) -> HttpResp
     } else {
         gear_resolver::resolve_gear(&parse_result)
     };
+    if req.void_forge {
+        gear_resolver::generate_void_forge_alternatives(&mut resolved.slots);
+    }
     resolved.catalyst_charges = catalyst_charges;
     HttpResponse::Ok().json(resolved)
 }
@@ -216,6 +219,23 @@ pub(super) async fn catalyst_convert(
     };
     let catalyst_item = gear_resolver::build_catalyst_item(&req.item, tier_info, &req.slot);
     HttpResponse::Ok().json(catalyst_item)
+}
+
+pub(super) async fn void_forge_convert(
+    req: web::Json<super::types::VoidForgeConvertRequest>,
+) -> HttpResponse {
+    let vf_map = crate::item_db::void_forge_map();
+    // Find the first VF-mapped bonus_id on the item.
+    let Some(vf_target) = req
+        .item
+        .bonus_ids
+        .iter()
+        .find_map(|b| vf_map.get(b).copied())
+    else {
+        return HttpResponse::BadRequest().body("item is not Void Forge eligible");
+    };
+    let vf_item = gear_resolver::build_void_forge_item(&req.item, vf_target);
+    HttpResponse::Ok().json(vf_item)
 }
 
 pub(super) async fn get_talent_tree(path: web::Path<u64>) -> HttpResponse {

@@ -106,11 +106,14 @@ pub(super) async fn create_top_gear_sim(
         .catalyst_charges
         .or_else(|| crate::addon_parser::parse_catalyst_charges(&req.simc_input, currency_id_sim));
 
-    let resolved = if req.catalyst || catalyst_charges.is_some() {
+    let mut resolved = if req.catalyst || catalyst_charges.is_some() {
         gear_resolver::resolve_gear_with_catalyst(&parse_result, catalyst_charges)
     } else {
         gear_resolver::resolve_gear(&parse_result)
     };
+    if req.void_forge {
+        gear_resolver::generate_void_forge_alternatives(&mut resolved.slots);
+    }
     let base_profile = resolved.base_profile.clone();
     let items_by_slot = build_items_by_slot(&req, &resolved);
     let talent_builds = normalized_talent_builds(&req.talent_builds);
@@ -217,11 +220,14 @@ pub(super) async fn get_top_gear_combo_count(req: web::Json<TopGearRequest>) -> 
         .catalyst_charges
         .or_else(|| crate::addon_parser::parse_catalyst_charges(&req.simc_input, currency_id));
 
-    let resolved = if req.catalyst || catalyst_charges.is_some() {
+    let mut resolved = if req.catalyst || catalyst_charges.is_some() {
         gear_resolver::resolve_gear_with_catalyst(&parse_result, catalyst_charges)
     } else {
         gear_resolver::resolve_gear(&parse_result)
     };
+    if req.void_forge {
+        gear_resolver::generate_void_forge_alternatives(&mut resolved.slots);
+    }
     let base_profile = resolved.base_profile.clone();
     let items_by_slot = build_items_by_slot(&req, &resolved);
     let talent_builds = normalized_talent_builds(&req.talent_builds);

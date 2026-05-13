@@ -163,6 +163,9 @@ pub struct TopGearRequest {
     /// When true, maximize unique gem colors across sockets
     #[serde(default)]
     pub max_colors: bool,
+    /// When true, generate Void Forge candidates for eligible slots
+    #[serde(default)]
+    pub void_forge: bool,
     #[serde(flatten)]
     pub options: SimOptions,
 }
@@ -213,12 +216,19 @@ pub(super) struct ResolveGearRequest {
     pub max_upgrade: bool,
     #[serde(default)]
     pub catalyst: bool,
+    #[serde(default)]
+    pub void_forge: bool,
 }
 
 #[derive(Debug, Deserialize)]
 pub(super) struct CatalystConvertRequest {
     pub class_name: String,
     pub slot: String,
+    pub item: crate::types::ResolvedItem,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct VoidForgeConvertRequest {
     pub item: crate::types::ResolvedItem,
 }
 

@@ -26,6 +26,8 @@ export interface ResolvedItem {
   gem_icon: string;
   is_catalyst?: boolean;
   can_catalyst?: boolean;
+  is_void_forge?: boolean;
+  can_void_forge?: boolean;
 }
 
 export interface SlotResolution {

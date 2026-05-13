@@ -182,6 +182,12 @@ pub struct ResolvedItem {
     /// Whether this item can be converted via Revival Catalyst.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub can_catalyst: bool,
+    /// Whether this item is a Void Forge-generated alternative.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub is_void_forge: bool,
+    /// Whether this item can be converted via Void Forge.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub can_void_forge: bool,
 }
 
 fn is_zero(v: &u64) -> bool {
