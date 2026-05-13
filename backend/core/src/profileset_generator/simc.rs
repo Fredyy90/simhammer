@@ -1,6 +1,18 @@
+use once_cell::sync::Lazy;
 use regex::Regex;
 
 const BASE64: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+// Compiled once at first use. Each of these is referenced from hot loops that
+// previously re-compiled the regex on every call.
+static ENCHANT_ID_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"enchant_id=\d+").unwrap());
+static ENCHANT_ID_CAPTURE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"enchant_id=(\d+)").unwrap());
+static GEM_ID_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"gem_id=\d+").unwrap());
+static GEM_ID_CAPTURE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"gem_id=(\d+)").unwrap());
+static ITEM_ID_CAPTURE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"id=(\d+)").unwrap());
+static AFTER_ITEM_ID_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(,id=\d+)").unwrap());
+static BONUS_ID_CAPTURE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"bonus_id=([0-9/:]+)").unwrap());
 
 pub(super) fn extract_spec_id_from_talent_string(talent_str: &str) -> Option<u64> {
     let mut bits = Vec::new();
@@ -26,33 +38,32 @@ pub(super) fn extract_spec_id_from_talent_string(talent_str: &str) -> Option<u64
 }
 
 pub(super) fn set_enchant_id(simc: &str, enchant_id: u64) -> String {
-    let re = Regex::new(r"enchant_id=\d+").unwrap();
-    if re.is_match(simc) {
-        re.replace(simc, &format!("enchant_id={}", enchant_id))
+    if ENCHANT_ID_RE.is_match(simc) {
+        ENCHANT_ID_RE
+            .replace(simc, &format!("enchant_id={}", enchant_id))
             .to_string()
     } else {
-        let id_re = Regex::new(r"(,id=\d+)").unwrap();
-        id_re
+        AFTER_ITEM_ID_RE
             .replace(simc, &format!("$1,enchant_id={}", enchant_id))
             .to_string()
     }
 }
 
 pub(super) fn set_gem_id(simc: &str, gem_id: u64) -> String {
-    let re = Regex::new(r"gem_id=\d+").unwrap();
-    if re.is_match(simc) {
-        re.replace(simc, &format!("gem_id={}", gem_id)).to_string()
+    if GEM_ID_RE.is_match(simc) {
+        GEM_ID_RE
+            .replace(simc, &format!("gem_id={}", gem_id))
+            .to_string()
     } else {
-        let id_re = Regex::new(r"(,id=\d+)").unwrap();
-        id_re
+        AFTER_ITEM_ID_RE
             .replace(simc, &format!("$1,gem_id={}", gem_id))
             .to_string()
     }
 }
 
 pub(super) fn extract_enchant_id(simc: &str) -> u64 {
-    let re = Regex::new(r"enchant_id=(\d+)").unwrap();
-    re.captures(simc)
+    ENCHANT_ID_CAPTURE_RE
+        .captures(simc)
         .and_then(|c| c[1].parse().ok())
         .unwrap_or(0)
 }
@@ -79,8 +90,7 @@ pub(super) fn simc_has_socket(simc: &str) -> bool {
     if extract_gem_id(simc) > 0 {
         return true;
     }
-    let bonus_re = Regex::new(r"bonus_id=([0-9/:]+)").unwrap();
-    let bonus_ids: Vec<u64> = bonus_re
+    let bonus_ids: Vec<u64> = BONUS_ID_CAPTURE_RE
         .captures(simc)
         .map(|c| {
             c[1].split(&['/', ':'][..])
@@ -110,15 +120,15 @@ pub(super) fn gem_color(gem_item_id: u64) -> Option<String> {
 }
 
 pub(super) fn extract_item_id(simc: &str) -> u64 {
-    let re = Regex::new(r"id=(\d+)").unwrap();
-    re.captures(simc)
+    ITEM_ID_CAPTURE_RE
+        .captures(simc)
         .and_then(|c| c[1].parse().ok())
         .unwrap_or(0)
 }
 
 pub(super) fn extract_gem_id(simc: &str) -> u64 {
-    let re = Regex::new(r"gem_id=(\d+)").unwrap();
-    re.captures(simc)
+    GEM_ID_CAPTURE_RE
+        .captures(simc)
         .and_then(|c| c[1].parse().ok())
         .unwrap_or(0)
 }

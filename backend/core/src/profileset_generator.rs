@@ -56,6 +56,41 @@ pub fn generate_top_gear_input_with_talents(
         replace_gems,
         diamond_always_use,
         max_colors,
+        false,
+    )
+}
+
+/// Count-only fast path. Skips building the simc_input string and metadata,
+/// returning just the emitted profileset count. Hit by the live UI combo-count
+/// endpoint on every selection toggle, so it must be cheap.
+#[allow(clippy::too_many_arguments)]
+pub fn count_top_gear_combos_with_talents(
+    base_profile: &str,
+    items_by_slot: &HashMap<String, Vec<Value>>,
+    selected_items: &HashMap<String, Vec<String>>,
+    max_combos_override: Option<usize>,
+    talent_builds: &[(String, String)],
+    catalyst_charges: Option<u32>,
+    enchant_selections: &HashMap<String, Vec<u64>>,
+    gem_options: &[u64],
+    socketed_item_ids: &HashSet<u64>,
+    replace_gems: bool,
+    diamond_always_use: bool,
+    max_colors: bool,
+) -> Result<usize, String> {
+    top_gear::count_top_gear_combos_with_talents(
+        base_profile,
+        items_by_slot,
+        selected_items,
+        max_combos_override,
+        talent_builds,
+        catalyst_charges,
+        enchant_selections,
+        gem_options,
+        socketed_item_ids,
+        replace_gems,
+        diamond_always_use,
+        max_colors,
     )
 }
 
@@ -99,8 +134,9 @@ pub fn generate_enchant_gem_input(
 #[cfg(test)]
 mod tests {
     use super::{
-        generate_droptimizer_input, generate_enchant_gem_input,
-        generate_top_gear_input_with_talents, generate_upgrade_compare_input,
+        count_top_gear_combos_with_talents, generate_droptimizer_input,
+        generate_enchant_gem_input, generate_top_gear_input_with_talents,
+        generate_upgrade_compare_input,
     };
     use serde_json::json;
     use std::collections::{HashMap, HashSet};
@@ -1037,6 +1073,92 @@ finger2=,id=101\n";
         )
         .unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn count_only_path_matches_full_generator_count() {
+        // The fast-path count function must return the same value as the full
+        // generator for any input. This is what guarantees the live UI count
+        // (cheap path) and the submit-time count (full path) agree.
+        ensure_game_data_loaded();
+        let base_profile = "\
+mage=test\n\
+spec=frost\n\
+head=,id=100,gem_id=213453\n\
+wrist=,id=250002\n\
+main_hand=,id=200\n";
+
+        let alt_wrist = json!({
+            "slot": "wrist",
+            "simc_string": ",id=300,bonus_id=13534",
+            "is_equipped": false,
+            "origin": "bags",
+            "item_id": 300,
+            "ilevel": 0,
+            "name": "Alt Wrist",
+            "bonus_ids": [13534],
+            "enchant_id": 0,
+            "gem_id": 0,
+            "sockets": 1,
+        });
+        let equipped_wrist = json!({
+            "slot": "wrist",
+            "simc_string": ",id=250002",
+            "is_equipped": true,
+            "origin": "equipped",
+            "item_id": 250002,
+            "ilevel": 0,
+            "name": "Equipped Wrist",
+            "bonus_ids": [],
+            "enchant_id": 0,
+            "gem_id": 0,
+            "sockets": 0,
+        });
+
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert("wrist".to_string(), vec![equipped_wrist, alt_wrist]);
+
+        let mut selected = HashMap::new();
+        selected.insert("wrist".to_string(), vec!["300:13534:bags:wrist".to_string()]);
+
+        let gems = [213454_u64, 213455_u64, 213456_u64];
+
+        let (_, full_count, _) = generate_top_gear_input_with_talents(
+            base_profile,
+            &items_by_slot,
+            &selected,
+            Some(50),
+            &[],
+            None,
+            &HashMap::new(),
+            &gems,
+            &HashSet::from([100_u64, 300_u64]),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
+        let fast_count = count_top_gear_combos_with_talents(
+            base_profile,
+            &items_by_slot,
+            &selected,
+            Some(50),
+            &[],
+            None,
+            &HashMap::new(),
+            &gems,
+            &HashSet::from([100_u64, 300_u64]),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(
+            full_count, fast_count,
+            "count_only path returned {fast_count} but full generator returned {full_count}"
+        );
     }
 
     #[test]

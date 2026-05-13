@@ -234,7 +234,7 @@ pub(super) async fn get_top_gear_combo_count(req: web::Json<TopGearRequest>) -> 
     let max_combinations = capped_max_combinations(req.max_combinations);
     let socketed_item_ids = socketed_item_ids(&resolved);
 
-    match profileset_generator::generate_top_gear_input_with_talents(
+    match profileset_generator::count_top_gear_combos_with_talents(
         &base_profile,
         &items_by_slot,
         &req.selected_items,
@@ -248,7 +248,7 @@ pub(super) async fn get_top_gear_combo_count(req: web::Json<TopGearRequest>) -> 
         req.diamond_always_use,
         req.max_colors,
     ) {
-        Ok((_, count, _)) => HttpResponse::Ok().json(json!({ "combo_count": count })),
+        Ok(count) => HttpResponse::Ok().json(json!({ "combo_count": count })),
         Err(e) => {
             let count: usize = e
                 .split('(')

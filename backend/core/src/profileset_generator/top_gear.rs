@@ -1,8 +1,11 @@
+use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
 use super::base_profile::{item_meta, parse_base_profile};
+
+static STRIP_GEM_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r",?gem_id=\d+").unwrap());
 use super::constraints::{
     gear_set_identity_key, main_hand_is_two_hand, validate_catalyst_constraint,
     validate_item_limits, validate_unique_equipped, validate_vault_constraint,
@@ -70,7 +73,45 @@ pub fn generate_top_gear_input(
         false,
         false,
         false,
+        false,
     )
+}
+
+/// Count-only variant: runs the full generator pipeline but skips building any
+/// output strings or metadata. Used by the live combo-count endpoint, which is
+/// hit on every selection change in the UI and would otherwise re-do all the
+/// per-emit formatting work just to discard it.
+#[allow(clippy::too_many_arguments)]
+pub fn count_top_gear_combos_with_talents(
+    base_profile: &str,
+    items_by_slot: &HashMap<String, Vec<Value>>,
+    selected_items: &HashMap<String, Vec<String>>,
+    max_combos_override: Option<usize>,
+    talent_builds: &[(String, String)],
+    catalyst_charges: Option<u32>,
+    enchant_selections: &HashMap<String, Vec<u64>>,
+    gem_options: &[u64],
+    socketed_item_ids: &HashSet<u64>,
+    replace_gems: bool,
+    diamond_always_use: bool,
+    max_colors: bool,
+) -> Result<usize, String> {
+    generate_top_gear_input_with_talents(
+        base_profile,
+        items_by_slot,
+        selected_items,
+        max_combos_override,
+        talent_builds,
+        catalyst_charges,
+        enchant_selections,
+        gem_options,
+        socketed_item_ids,
+        replace_gems,
+        diamond_always_use,
+        max_colors,
+        true,
+    )
+    .map(|(_, count, _)| count)
 }
 
 /// Generate top-gear profileset input, optionally multiplying by talent builds
@@ -89,6 +130,7 @@ pub fn generate_top_gear_input_with_talents(
     replace_gems: bool,
     diamond_always_use: bool,
     max_colors: bool,
+    count_only: bool,
 ) -> ProfilesetResult {
     // Extract base profile info (non-gear lines) and equipped gear
     let (base_lines, equipped_gear, talents_string, spec) = parse_base_profile(base_profile);
@@ -498,19 +540,7 @@ pub fn generate_top_gear_input_with_talents(
     let mut combo_metadata: HashMap<String, Vec<Value>> = HashMap::new();
     let paired_display_slots = ["finger1", "finger2", "trinket1", "trinket2"];
 
-    // Write clean base profile (non-gear lines + equipped gear)
-    lines.push("# Base Actor".to_string());
-    lines.extend(base_lines.clone());
     let base_talent = &effective_talents[0].1;
-    lines.push("### Combo 1".to_string());
-    for slot in GEAR_SLOTS {
-        let slot_str = slot.to_string();
-        if let Some(gear_val) = equipped_gear.get(&slot_str) {
-            lines.push(format!("{}={}", slot, gear_val));
-        } else if *slot == "off_hand" {
-            lines.push("off_hand=,".to_string());
-        }
-    }
     // Determine the base actor's effective spec (might differ from original if first talent build is another spec)
     let base_actor_spec: String = if !base_talent.is_empty() {
         extract_spec_id_from_talent_string(base_talent)
@@ -521,45 +551,62 @@ pub fn generate_top_gear_input_with_talents(
         spec.clone()
     };
 
-    if !base_talent.is_empty() {
-        lines.push(format!("talents={}", base_talent));
-        if base_actor_spec != spec {
-            lines.push(format!("spec={}", base_actor_spec));
+    if !count_only {
+        // Write clean base profile (non-gear lines + equipped gear)
+        lines.push("# Base Actor".to_string());
+        lines.extend(base_lines.clone());
+        lines.push("### Combo 1".to_string());
+        for slot in GEAR_SLOTS {
+            let slot_str = slot.to_string();
+            if let Some(gear_val) = equipped_gear.get(&slot_str) {
+                lines.push(format!("{}={}", slot, gear_val));
+            } else if *slot == "off_hand" {
+                lines.push("off_hand=,".to_string());
+            }
         }
+        if !base_talent.is_empty() {
+            lines.push(format!("talents={}", base_talent));
+            if base_actor_spec != spec {
+                lines.push(format!("spec={}", base_actor_spec));
+            }
+        }
+        lines.push(String::new());
     }
-    lines.push(String::new());
 
     // Build baseline metadata for "Currently Equipped"
-    let mut baseline_items: Vec<Value> = Vec::new();
-    for slot in &paired_display_slots {
-        let slot = slot.to_string();
-        if let Some(items) = slot_item_lists.get(&slot) {
-            if !items.is_empty() {
-                baseline_items.push(item_meta(&items[0], &slot));
+    if !count_only {
+        let mut baseline_items: Vec<Value> = Vec::new();
+        for slot in &paired_display_slots {
+            let slot = slot.to_string();
+            if let Some(items) = slot_item_lists.get(&slot) {
+                if !items.is_empty() {
+                    baseline_items.push(item_meta(&items[0], &slot));
+                }
             }
         }
-    }
-    let baseline_name = if has_talent_variants {
-        let talent_name = &effective_talents[0].0;
-        let talent_spec: Option<&str> = extract_spec_id_from_talent_string(&effective_talents[0].1)
-            .and_then(class_data::spec_id_to_name);
-        if baseline_items.is_empty() {
-            baseline_items.push(json!({
-                "talent_build": talent_name,
-                "talent_spec": talent_spec,
-                "is_kept": true,
-            }));
+        let baseline_name = if has_talent_variants {
+            let talent_name = &effective_talents[0].0;
+            let talent_spec: Option<&str> =
+                extract_spec_id_from_talent_string(&effective_talents[0].1)
+                    .and_then(class_data::spec_id_to_name);
+            if baseline_items.is_empty() {
+                baseline_items.push(json!({
+                    "talent_build": talent_name,
+                    "talent_spec": talent_spec,
+                    "is_kept": true,
+                }));
+            } else {
+                for item in &mut baseline_items {
+                    item["talent_build"] = json!(talent_name);
+                    item["talent_spec"] = json!(talent_spec);
+                }
+            }
+            format!("Currently Equipped ({})", talent_name)
         } else {
-            for item in &mut baseline_items {
-                item["talent_build"] = json!(talent_name);
-                item["talent_spec"] = json!(talent_spec);
-            }
-        }
-        format!("Currently Equipped ({})", talent_name)
-    } else {
-        "Currently Equipped".to_string()
-    };
-    combo_metadata.insert(baseline_name, baseline_items);
+            "Currently Equipped".to_string()
+        };
+        combo_metadata.insert(baseline_name, baseline_items);
+    }
 
     let mut combo_number = 2usize;
 
@@ -655,8 +702,7 @@ pub fn generate_top_gear_input_with_talents(
         let already_gemmed = extract_gem_id(simc) > 0;
 
         let mut result = if replace_gems && has_socket {
-            let re = Regex::new(r",?gem_id=\d+").unwrap();
-            re.replace(simc, "").to_string()
+            STRIP_GEM_RE.replace(simc, "").to_string()
         } else {
             simc.to_string()
         };
@@ -740,33 +786,38 @@ pub fn generate_top_gear_input_with_talents(
                         .map(|gear_val| gem_simc(&slot_str, gear_val) != *gear_val)
                         .unwrap_or(false)
                 });
-                if !any_gem_change {
-                    // Gem combo doesn't change anything on baseline gear, skip
-                } else {
-                    let combo_name = format!("Combo {}", combo_number);
-                    lines.push(format!("### {}", combo_name));
-                    for slot in GEAR_SLOTS {
-                        let slot_str = slot.to_string();
-                        if let Some(gear_val) = equipped_gear.get(&slot_str) {
-                            let val = gem_simc(&slot_str, gear_val);
-                            lines.push(format!("profileset.\"{}\"+={}={}", combo_name, slot, val));
-                        } else if *slot == "off_hand" {
-                            lines.push(format!("profileset.\"{}\"+=off_hand=,", combo_name));
+                if any_gem_change {
+                    if !count_only {
+                        let combo_name = format!("Combo {}", combo_number);
+                        lines.push(format!("### {}", combo_name));
+                        for slot in GEAR_SLOTS {
+                            let slot_str = slot.to_string();
+                            if let Some(gear_val) = equipped_gear.get(&slot_str) {
+                                let val = gem_simc(&slot_str, gear_val);
+                                lines.push(format!(
+                                    "profileset.\"{}\"+={}={}",
+                                    combo_name, slot, val
+                                ));
+                            } else if *slot == "off_hand" {
+                                lines.push(format!("profileset.\"{}\"+=off_hand=,", combo_name));
+                            }
                         }
+                        lines.push(String::new());
+                        let mut combo_items: Vec<Value> = Vec::new();
+                        if let Some(gc) = gem_combo_opt {
+                            let socketed: HashSet<String> = GEAR_SLOTS
+                                .iter()
+                                .filter(|s| {
+                                    equipped_gear.get(**s).is_some_and(|v| simc_has_socket(v))
+                                })
+                                .map(|s| s.to_string())
+                                .collect();
+                            combo_items.extend(build_gem_meta(gc, Some(&socketed)));
+                        }
+                        combo_metadata.insert(combo_name, combo_items);
                     }
-                    lines.push(String::new());
-                    let mut combo_items: Vec<Value> = Vec::new();
-                    if let Some(gc) = gem_combo_opt {
-                        let socketed: HashSet<String> = GEAR_SLOTS
-                            .iter()
-                            .filter(|s| equipped_gear.get(**s).is_some_and(|v| simc_has_socket(v)))
-                            .map(|s| s.to_string())
-                            .collect();
-                        combo_items.extend(build_gem_meta(gc, Some(&socketed)));
-                    }
-                    combo_metadata.insert(combo_name, combo_items);
                     combo_number += 1;
-                } // end any_gem_change else
+                }
             }
 
             // For the first talent + baseline gear, we still need enchant/gem-only combos
@@ -785,46 +836,52 @@ pub fn generate_top_gear_input_with_talents(
                         continue; // Skip: no equipped items have empty sockets for this gem
                     }
 
-                    let combo_name = format!("Combo {}", combo_number);
-                    lines.push(format!("### {}", combo_name));
+                    if !count_only {
+                        let combo_name = format!("Combo {}", combo_number);
+                        lines.push(format!("### {}", combo_name));
 
-                    for slot in GEAR_SLOTS {
-                        let slot_str = slot.to_string();
-                        if let Some(gear_val) = equipped_gear.get(&slot_str) {
-                            let modified = apply_eg_combo(&slot_str, gear_val, eg_idx);
-                            let val = gem_simc(&slot_str, modified.as_deref().unwrap_or(gear_val));
-                            lines.push(format!("profileset.\"{}\"+={}={}", combo_name, slot, val));
-                        } else if *slot == "off_hand" {
-                            lines.push(format!("profileset.\"{}\"+=off_hand=,", combo_name));
+                        for slot in GEAR_SLOTS {
+                            let slot_str = slot.to_string();
+                            if let Some(gear_val) = equipped_gear.get(&slot_str) {
+                                let modified = apply_eg_combo(&slot_str, gear_val, eg_idx);
+                                let val =
+                                    gem_simc(&slot_str, modified.as_deref().unwrap_or(gear_val));
+                                lines.push(format!(
+                                    "profileset.\"{}\"+={}={}",
+                                    combo_name, slot, val
+                                ));
+                            } else if *slot == "off_hand" {
+                                lines.push(format!("profileset.\"{}\"+=off_hand=,", combo_name));
+                            }
                         }
-                    }
-                    lines.push(String::new());
+                        lines.push(String::new());
 
-                    let mut combo_items: Vec<Value> = build_eg_meta(eg_idx);
-                    if let Some(gc) = gem_combo_opt {
-                        let socketed: HashSet<String> = GEAR_SLOTS
-                            .iter()
-                            .filter(|s| {
-                                let slot_str = s.to_string();
-                                equipped_gear.get(&slot_str).is_some_and(|v| {
-                                    let modified = apply_eg_combo(&slot_str, v, eg_idx);
-                                    simc_has_socket(modified.as_deref().unwrap_or(v))
+                        let mut combo_items: Vec<Value> = build_eg_meta(eg_idx);
+                        if let Some(gc) = gem_combo_opt {
+                            let socketed: HashSet<String> = GEAR_SLOTS
+                                .iter()
+                                .filter(|s| {
+                                    let slot_str = s.to_string();
+                                    equipped_gear.get(&slot_str).is_some_and(|v| {
+                                        let modified = apply_eg_combo(&slot_str, v, eg_idx);
+                                        simc_has_socket(modified.as_deref().unwrap_or(v))
+                                    })
                                 })
-                            })
-                            .map(|s| s.to_string())
-                            .collect();
-                        combo_items.extend(build_gem_meta(gc, Some(&socketed)));
-                    }
-                    if has_talent_variants {
-                        let talent_spec: Option<&str> =
-                            extract_spec_id_from_talent_string(talent_str)
-                                .and_then(class_data::spec_id_to_name);
-                        for item in &mut combo_items {
-                            item["talent_build"] = json!(talent_name);
-                            item["talent_spec"] = json!(talent_spec);
+                                .map(|s| s.to_string())
+                                .collect();
+                            combo_items.extend(build_gem_meta(gc, Some(&socketed)));
                         }
+                        if has_talent_variants {
+                            let talent_spec: Option<&str> =
+                                extract_spec_id_from_talent_string(talent_str)
+                                    .and_then(class_data::spec_id_to_name);
+                            for item in &mut combo_items {
+                                item["talent_build"] = json!(talent_name);
+                                item["talent_spec"] = json!(talent_spec);
+                            }
+                        }
+                        combo_metadata.insert(combo_name, combo_items);
                     }
-                    combo_metadata.insert(combo_name, combo_items);
                     combo_number += 1;
                 }
             }
@@ -866,6 +923,11 @@ pub fn generate_top_gear_input_with_talents(
                         if !any_change {
                             continue;
                         }
+                    }
+
+                    if count_only {
+                        combo_number += 1;
+                        continue;
                     }
 
                     let combo_name = format!("Combo {}", combo_number);
