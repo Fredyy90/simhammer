@@ -286,7 +286,7 @@
   "topGear.simHighestUpgrade": "Simular Maior Melhoria",
   "topGear.revivalCatalyst": "Catalisador de Renascimento",
   "topGear.charges": "cargas",
-  "topGear.copyEnchantsTooltip": "Aplica o encantamento equipado atualmente a todos os itens alternativos no mesmo slot, para uma comparação justa.",
+  "topGear.copyEnchantsTooltip": "Aplica o encantamento equipado atualmente aos itens alternativos sem encantamento no mesmo slot, para uma comparação justa. Alternativas que já têm o próprio encantamento não são alteradas.",
   "topGear.simHighestUpgradeTooltip": "Trata todo o equipamento como se estivesse totalmente melhorado ao nível máximo, para ver em quais peças vale a pena investir.",
   "topGear.revivalCatalystTooltip": "Adiciona versões de conjunto de raide do seu equipamento à comparação. Considera apenas peças que seriam uma melhoria.",
   "topGear.chargesTooltip": "Quantas peças do catalisador podem ser usadas ao mesmo tempo em um único conjunto de equipamento.",

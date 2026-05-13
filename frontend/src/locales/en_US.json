@@ -292,7 +292,7 @@
   "topGear.resolvingGear": "Resolving gear...",
   "topGear.pasteExport": "Paste your SimC addon export to see gear options.",
   "topGear.copyEnchants": "Copy Enchants",
-  "topGear.copyEnchantsTooltip": "Applies your currently equipped enchant to all alternative items in the same slot, so they are compared fairly.",
+  "topGear.copyEnchantsTooltip": "Applies your currently equipped enchant to unenchanted alternative items in the same slot, so they are compared fairly. Alternatives that already have their own enchant are left untouched.",
   "topGear.simHighestUpgrade": "Sim Highest Upgrade",
   "topGear.simHighestUpgradeTooltip": "Treat all gear as fully upgraded to its maximum item level, so you can see which pieces are worth investing in.",
   "topGear.revivalCatalyst": "Revival Catalyst",

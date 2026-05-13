@@ -1312,7 +1312,7 @@ pub fn apply_copy_enchants(
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
                 let current_ench = item.get("enchant_id").and_then(|e| e.as_u64()).unwrap_or(0);
-                if is_equipped || current_ench == ench_id {
+                if is_equipped || current_ench != 0 {
                     return item.clone();
                 }
 
@@ -1482,4 +1482,219 @@ pub fn dungeon_normal_quality() -> u64 {
         .and_then(|d| d.get("quality"))
         .and_then(|v| v.as_u64())
         .unwrap_or(3)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::path::PathBuf;
+    use std::sync::Once;
+
+    static LOAD_GAME_DATA: Once = Once::new();
+    fn ensure_game_data_loaded() {
+        LOAD_GAME_DATA.call_once(|| {
+            let data_dir =
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../resources/data-compacted");
+            load(&data_dir);
+        });
+    }
+
+    fn item(
+        id: u64,
+        is_equipped: bool,
+        enchant_id: u64,
+        simc_string: &str,
+        bonus_ids: Vec<u64>,
+    ) -> Value {
+        json!({
+            "item_id": id,
+            "is_equipped": is_equipped,
+            "enchant_id": enchant_id,
+            "simc_string": simc_string,
+            "bonus_ids": bonus_ids,
+        })
+    }
+
+    // ---- apply_copy_enchants ----
+
+    #[test]
+    fn copy_enchants_propagates_equipped_enchant_to_alternatives() {
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert(
+            "head".to_string(),
+            vec![
+                item(100, true, 7777, ",id=100,enchant_id=7777", vec![]),
+                item(200, false, 0, ",id=200", vec![]),
+                item(300, false, 0, ",id=300", vec![]),
+            ],
+        );
+
+        let result = apply_copy_enchants(&items_by_slot);
+        let head = result.get("head").unwrap();
+        assert_eq!(head[0]["enchant_id"], 7777); // equipped unchanged
+        assert_eq!(head[1]["enchant_id"], 7777); // alt 200 inherits
+        assert_eq!(head[2]["enchant_id"], 7777); // alt 300 inherits
+        assert!(head[1]["simc_string"]
+            .as_str()
+            .unwrap()
+            .contains("enchant_id=7777"));
+    }
+
+    #[test]
+    fn copy_enchants_preserves_alternatives_with_existing_enchant() {
+        // Copy-enchants is a "fill in missing" operation: an alternative that
+        // already carries an enchant must keep it (the user picked it deliberately).
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert(
+            "head".to_string(),
+            vec![
+                item(100, true, 7777, ",id=100,enchant_id=7777", vec![]),
+                item(200, false, 8888, ",id=200,enchant_id=8888", vec![]),
+            ],
+        );
+        let result = apply_copy_enchants(&items_by_slot);
+        let head = result.get("head").unwrap();
+        assert_eq!(head[1]["enchant_id"], 8888);
+        assert!(head[1]["simc_string"]
+            .as_str()
+            .unwrap()
+            .contains("enchant_id=8888"));
+    }
+
+    #[test]
+    fn copy_enchants_no_op_when_equipped_has_no_enchant() {
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert(
+            "head".to_string(),
+            vec![
+                item(100, true, 0, ",id=100", vec![]),
+                item(200, false, 0, ",id=200", vec![]),
+            ],
+        );
+        let result = apply_copy_enchants(&items_by_slot);
+        let head = result.get("head").unwrap();
+        assert_eq!(head[1]["enchant_id"], 0);
+    }
+
+    #[test]
+    fn copy_enchants_inserts_enchant_id_when_simc_lacks_one() {
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert(
+            "head".to_string(),
+            vec![
+                item(100, true, 7777, ",id=100,enchant_id=7777", vec![]),
+                item(200, false, 0, ",id=200,bonus_id=12", vec![]),
+            ],
+        );
+        let result = apply_copy_enchants(&items_by_slot);
+        let head = result.get("head").unwrap();
+        let alt_simc = head[1]["simc_string"].as_str().unwrap();
+        assert!(
+            alt_simc.contains("id=200,enchant_id=7777,bonus_id=12"),
+            "expected enchant inserted after id=; got: {alt_simc}"
+        );
+    }
+
+    #[test]
+    fn copy_enchants_per_slot_independent() {
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert(
+            "head".to_string(),
+            vec![
+                item(100, true, 7777, ",id=100,enchant_id=7777", vec![]),
+                item(200, false, 0, ",id=200", vec![]),
+            ],
+        );
+        items_by_slot.insert(
+            "chest".to_string(),
+            vec![
+                item(101, true, 8888, ",id=101,enchant_id=8888", vec![]),
+                item(201, false, 0, ",id=201", vec![]),
+            ],
+        );
+        let result = apply_copy_enchants(&items_by_slot);
+        assert_eq!(result["head"][1]["enchant_id"], 7777);
+        assert_eq!(result["chest"][1]["enchant_id"], 8888);
+    }
+
+    // ---- upgrade_items_by_slot ----
+
+    #[test]
+    fn upgrade_items_by_slot_no_op_when_already_max() {
+        ensure_game_data_loaded();
+        // Empty bonus_ids → no upgrade applies, items unchanged.
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert(
+            "head".to_string(),
+            vec![item(100, true, 0, ",id=100", vec![])],
+        );
+        let result = upgrade_items_by_slot(&items_by_slot);
+        assert_eq!(result["head"][0]["bonus_ids"], json!([]));
+    }
+
+    #[test]
+    fn upgrade_items_by_slot_passes_through_unaffected_items() {
+        ensure_game_data_loaded();
+        // Unknown bonus_ids that don't map to upgrade tracks should be left alone.
+        let mut items_by_slot = HashMap::new();
+        items_by_slot.insert(
+            "head".to_string(),
+            vec![item(100, true, 0, ",id=100,bonus_id=99999", vec![99999])],
+        );
+        let result = upgrade_items_by_slot(&items_by_slot);
+        // Even if no upgrade applies, the item should be present in output.
+        assert_eq!(result["head"].len(), 1);
+    }
+
+    // ---- upgrade_bonus_ids_to_max ----
+
+    #[test]
+    fn upgrade_bonus_ids_to_max_empty_returns_empty() {
+        ensure_game_data_loaded();
+        assert_eq!(upgrade_bonus_ids_to_max(&[]), Vec::<u64>::new());
+    }
+
+    #[test]
+    fn upgrade_bonus_ids_to_max_unrelated_bonus_passes_through() {
+        ensure_game_data_loaded();
+        // Bonus 13440 is a tag bonus, not an upgrade — should pass through unchanged.
+        let result = upgrade_bonus_ids_to_max(&[13440]);
+        assert_eq!(result, vec![13440]);
+    }
+
+    // ---- resolve_bonuses ----
+
+    #[test]
+    fn resolve_bonuses_returns_socket_count_for_13534() {
+        ensure_game_data_loaded();
+        let resolved = resolve_bonuses(&[13534]);
+        assert_eq!(resolved.sockets, Some(1));
+    }
+
+    #[test]
+    fn resolve_bonuses_extracts_tag() {
+        ensure_game_data_loaded();
+        // 13440 has a "tag" property per the data file.
+        let resolved = resolve_bonuses(&[13440]);
+        assert!(resolved.tag.is_some());
+    }
+
+    #[test]
+    fn resolve_bonuses_empty_returns_defaults() {
+        ensure_game_data_loaded();
+        let resolved = resolve_bonuses(&[]);
+        assert_eq!(resolved.sockets, None);
+        assert_eq!(resolved.tag, None);
+        assert_eq!(resolved.ilevel, None);
+    }
+
+    // ---- get_item_limit_categories ----
+
+    #[test]
+    fn get_item_limit_categories_empty_returns_empty() {
+        ensure_game_data_loaded();
+        let cats = get_item_limit_categories(&[]);
+        assert!(cats.is_empty());
+    }
 }

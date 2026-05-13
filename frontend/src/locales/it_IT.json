@@ -286,7 +286,7 @@
   "topGear.simHighestUpgrade": "Simula Potenziamento Più Alto",
   "topGear.revivalCatalyst": "Catalizzatore della Rinascita",
   "topGear.charges": "cariche",
-  "topGear.copyEnchantsTooltip": "Applica l'incantamento attualmente equipaggiato a tutti gli oggetti alternativi nello stesso slot, per un confronto equo.",
+  "topGear.copyEnchantsTooltip": "Applica l'incantamento attualmente equipaggiato agli oggetti alternativi privi di incantamento nello stesso slot, per un confronto equo. Le alternative che hanno già un proprio incantamento non vengono modificate.",
   "topGear.simHighestUpgradeTooltip": "Tratta tutto l'equipaggiamento come se fosse potenziato al massimo livello, per vedere su quali pezzi vale la pena investire.",
   "topGear.revivalCatalystTooltip": "Aggiunge versioni set di raid del tuo equipaggiamento al confronto. Considera solo i pezzi che sarebbero un miglioramento.",
   "topGear.chargesTooltip": "Quanti pezzi del catalizzatore possono essere indossati contemporaneamente in un singolo set di equipaggiamento.",

@@ -286,7 +286,7 @@
   "topGear.simHighestUpgrade": "Höchstes Upgrade simulieren",
   "topGear.revivalCatalyst": "Wiederbelebungskatalysator",
   "topGear.charges": "Aufladungen",
-  "topGear.copyEnchantsTooltip": "Überträgt deine aktuell angelegte Verzauberung auf alle alternativen Gegenstände im selben Platz, damit der Vergleich fair ist.",
+  "topGear.copyEnchantsTooltip": "Überträgt deine aktuell angelegte Verzauberung auf unverzauberte alternative Gegenstände im selben Platz, damit der Vergleich fair ist. Alternativen mit eigener Verzauberung bleiben unverändert.",
   "topGear.simHighestUpgradeTooltip": "Behandelt alle Ausrüstung als vollständig auf das maximale Gegenstandslevel aufgewertet, damit du siehst, in welche Teile sich die Investition lohnt.",
   "topGear.revivalCatalystTooltip": "Fügt Tier-Set-Versionen deiner Raidausrüstung zum Vergleich hinzu. Berücksichtigt nur Teile, die eine Verbesserung wären.",
   "topGear.chargesTooltip": "Wie viele Katalysatorteile gleichzeitig in einem einzelnen Ausrüstungsset getragen werden können.",

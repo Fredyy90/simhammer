@@ -286,7 +286,7 @@
   "topGear.simHighestUpgrade": "Simuler la meilleure amélioration",
   "topGear.revivalCatalyst": "Catalyseur de renouveau",
   "topGear.charges": "charges",
-  "topGear.copyEnchantsTooltip": "Applique l'enchantement actuellement équipé à tous les objets alternatifs du même emplacement, pour une comparaison équitable.",
+  "topGear.copyEnchantsTooltip": "Applique l'enchantement actuellement équipé aux objets alternatifs sans enchantement dans le même emplacement, pour une comparaison équitable. Les alternatives qui ont déjà leur propre enchantement ne sont pas modifiées.",
   "topGear.simHighestUpgradeTooltip": "Traite tout l'équipement comme s'il était amélioré au maximum, pour voir quelles pièces méritent l'investissement.",
   "topGear.revivalCatalystTooltip": "Ajoute les versions set de raid de ton équipement à la comparaison. Ne considère que les pièces qui seraient une amélioration.",
   "topGear.chargesTooltip": "Combien de pièces du catalyseur peuvent être portées en même temps dans un même ensemble d'équipement.",
