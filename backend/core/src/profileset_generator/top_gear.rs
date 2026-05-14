@@ -895,6 +895,20 @@ pub fn generate_top_gear_input_with_talents(
                     &eg_all_combos
                 };
 
+                // Resolve the simc string for `slot` in this gear combo: prefer the
+                // gear_set entry, fall back to the equipped item, return None if neither.
+                let simc_for_slot = |slot_str: &str| -> Option<&str> {
+                    if *is_equipped_with_new_talent || gear_set.is_empty() {
+                        equipped_gear.get(slot_str).map(|s| s.as_str())
+                    } else {
+                        gear_set
+                            .get(slot_str)
+                            .and_then(|item| item.get("simc_string"))
+                            .and_then(|s| s.as_str())
+                            .or_else(|| equipped_gear.get(slot_str).map(|s| s.as_str()))
+                    }
+                };
+
                 for eg_idx in eg_iter {
                     let is_eg_baseline = !has_enchant_gem || *eg_idx == eg_baseline;
 
@@ -907,17 +921,8 @@ pub fn generate_top_gear_input_with_talents(
                     // item in this gear set. If no item has an empty socket, skip.
                     if !is_eg_baseline {
                         let any_change = GEAR_SLOTS.iter().any(|slot| {
-                            let slot_str = slot.to_string();
-                            let simc = if *is_equipped_with_new_talent || gear_set.is_empty() {
-                                equipped_gear.get(&slot_str).map(|s| s.as_str())
-                            } else {
-                                gear_set
-                                    .get(&slot_str)
-                                    .and_then(|item| item.get("simc_string"))
-                                    .and_then(|s| s.as_str())
-                                    .or_else(|| equipped_gear.get(&slot_str).map(|s| s.as_str()))
-                            };
-                            simc.and_then(|s| apply_eg_combo(&slot_str, s, eg_idx))
+                            simc_for_slot(slot)
+                                .and_then(|s| apply_eg_combo(slot, s, eg_idx))
                                 .is_some()
                         });
                         if !any_change {
@@ -1058,21 +1063,9 @@ pub fn generate_top_gear_input_with_talents(
                     if let Some(gc) = gem_combo_opt {
                         let socketed: HashSet<String> = GEAR_SLOTS
                             .iter()
-                            .filter(|s| {
-                                let slot_str = s.to_string();
-                                let simc = if *is_equipped_with_new_talent || gear_set.is_empty() {
-                                    equipped_gear.get(&slot_str).map(|v| v.as_str())
-                                } else {
-                                    gear_set
-                                        .get(&slot_str)
-                                        .and_then(|item| item.get("simc_string"))
-                                        .and_then(|s| s.as_str())
-                                        .or_else(|| {
-                                            equipped_gear.get(&slot_str).map(|v| v.as_str())
-                                        })
-                                };
-                                simc.is_some_and(|v| {
-                                    let modified = apply_eg_combo(&slot_str, v, eg_idx);
+                            .filter(|slot| {
+                                simc_for_slot(slot).is_some_and(|v| {
+                                    let modified = apply_eg_combo(slot, v, eg_idx);
                                     simc_has_socket(modified.as_deref().unwrap_or(v))
                                 })
                             })

@@ -1487,18 +1487,8 @@ pub fn dungeon_normal_quality() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::ensure_game_data_loaded;
     use serde_json::json;
-    use std::path::PathBuf;
-    use std::sync::Once;
-
-    static LOAD_GAME_DATA: Once = Once::new();
-    fn ensure_game_data_loaded() {
-        LOAD_GAME_DATA.call_once(|| {
-            let data_dir =
-                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../resources/data-compacted");
-            load(&data_dir);
-        });
-    }
 
     fn item(
         id: u64,

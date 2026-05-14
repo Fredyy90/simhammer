@@ -217,17 +217,7 @@ pub(super) fn generate_enchant_gem_input(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-    use std::sync::Once;
-
-    static LOAD_GAME_DATA: Once = Once::new();
-    fn ensure_game_data_loaded() {
-        LOAD_GAME_DATA.call_once(|| {
-            let data_dir =
-                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../resources/data-compacted");
-            crate::item_db::load(&data_dir);
-        });
-    }
+    use crate::test_support::ensure_game_data_loaded;
 
     #[test]
     fn enchant_axis_with_only_current_enchant_skipped() {

@@ -143,7 +143,10 @@ const STAGES: &[Stage] = &[
     Stage { name: "Final",   target_error: 0.05 },
 ];
 
-const STAGED_THRESHOLD: usize = 10;
+/// Below this combo count, skip staging and run a single direct sim. The 6-stage
+/// schedule needs enough combos for pruning to amortize the per-stage subprocess
+/// startup cost — for small jobs a single full-precision pass is faster.
+const STAGED_THRESHOLD: usize = 20;
 
 /// Min survivors retained at any pruning step. Acts as a floor inside
 /// `select_kept_profilesets` so a tight distribution still advances ≥ this many.
