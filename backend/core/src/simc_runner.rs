@@ -736,13 +736,13 @@ async fn run_simc_subprocess(
     })
 }
 
-fn get_profileset_results(raw: &Value) -> Vec<Value> {
+fn get_profileset_results(raw: &Value) -> &[Value] {
     raw.get("sim")
         .and_then(|s| s.get("profilesets"))
         .and_then(|p| p.get("results"))
         .and_then(|r| r.as_array())
-        .cloned()
-        .unwrap_or_default()
+        .map(|v| v.as_slice())
+        .unwrap_or(&[])
 }
 
 pub fn filter_simc_input(
@@ -992,14 +992,15 @@ pub async fn run_simc_staged(
             break;
         }
 
-        let profilesets = get_profileset_results(&result.as_ref().unwrap().json);
+        let stage_json = &result.as_ref().unwrap().json;
+        let profilesets = get_profileset_results(stage_json);
         if profilesets.is_empty() {
             on_stage_complete(&format!("{} · no results", stage.name));
             break;
         }
 
         let keep_combos =
-            select_kept_profilesets(&profilesets, stage.target_error, STAGE_MIN_KEEP);
+            select_kept_profilesets(profilesets, stage.target_error, STAGE_MIN_KEEP);
 
         if keep_combos.len() >= profilesets.len() {
             on_stage_complete(&format!(
@@ -1012,7 +1013,8 @@ pub async fn run_simc_staged(
         }
 
         // Save eliminated combos' DPS from this stage (for the final result merge).
-        for ps in &profilesets {
+        // Only clones the subset we actually drop — full kept set stays as borrow.
+        for ps in profilesets {
             let name = ps.get("name").and_then(|n| n.as_str()).unwrap_or("");
             if !name.is_empty() && !keep_combos.contains(name) {
                 eliminated.insert(name.to_string(), ps.clone());
