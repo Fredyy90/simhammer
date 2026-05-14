@@ -1,12 +1,16 @@
 use serde_json::Value;
+use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 
 use crate::game_data;
 use crate::types::class_data::{GEAR_SLOTS, UNIQUE_SLOT_PAIRS};
 
-pub(super) fn validate_vault_constraint(gear_set: &HashMap<String, Value>) -> bool {
+pub(super) fn validate_vault_constraint<V: Borrow<Value>>(
+    gear_set: &HashMap<String, V>,
+) -> bool {
     let mut vault_item_ids: HashSet<u64> = HashSet::new();
     for item in gear_set.values() {
+        let item = item.borrow();
         if item.get("origin").and_then(|v| v.as_str()) == Some("vault") {
             let item_id = item.get("item_id").and_then(|v| v.as_u64()).unwrap_or(0);
             vault_item_ids.insert(item_id);
@@ -18,14 +22,15 @@ pub(super) fn validate_vault_constraint(gear_set: &HashMap<String, Value>) -> bo
     true
 }
 
-pub(super) fn validate_catalyst_constraint(
-    gear_set: &HashMap<String, Value>,
+pub(super) fn validate_catalyst_constraint<V: Borrow<Value>>(
+    gear_set: &HashMap<String, V>,
     max_charges: u32,
 ) -> bool {
     let catalyst_count = gear_set
         .values()
         .filter(|item| {
-            item.get("is_catalyst")
+            let v: &Value = (*item).borrow();
+            v.get("is_catalyst")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false)
         })
@@ -33,11 +38,14 @@ pub(super) fn validate_catalyst_constraint(
     catalyst_count <= max_charges
 }
 
-pub(super) fn validate_weapon_constraint(gear_set: &HashMap<String, Value>, spec: &str) -> bool {
+pub(super) fn validate_weapon_constraint<V: Borrow<Value>>(
+    gear_set: &HashMap<String, V>,
+    spec: &str,
+) -> bool {
     if spec == "fury" {
         return true;
     }
-    let Some(mh) = gear_set.get("main_hand") else {
+    let Some(mh) = gear_set.get("main_hand").map(|v| v.borrow()) else {
         return true;
     };
     let mh_item_id = mh.get("item_id").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -51,7 +59,11 @@ pub(super) fn validate_weapon_constraint(gear_set: &HashMap<String, Value>, spec
     match gear_set.get("off_hand") {
         None => true,
         Some(oh_item) => {
-            let oh_id = oh_item.get("item_id").and_then(|v| v.as_u64()).unwrap_or(0);
+            let oh_id = oh_item
+                .borrow()
+                .get("item_id")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
             oh_id == 0
         }
     }
@@ -73,7 +85,7 @@ fn item_identity(item: &Value) -> String {
     format!("{}:{}", item_id, bonus_key)
 }
 
-pub(super) fn gear_set_identity_key(gear_set: &HashMap<String, Value>) -> String {
+pub(super) fn gear_set_identity_key<V: Borrow<Value>>(gear_set: &HashMap<String, V>) -> String {
     let paired: HashSet<&str> = UNIQUE_SLOT_PAIRS
         .iter()
         .flat_map(|(a, b)| [*a, *b])
@@ -95,11 +107,11 @@ pub(super) fn gear_set_identity_key(gear_set: &HashMap<String, Value>) -> String
                 handled.insert(s2);
                 let id1 = gear_set
                     .get(*s1)
-                    .map(item_identity)
+                    .map(|v| item_identity(v.borrow()))
                     .unwrap_or_else(|| "none".to_string());
                 let id2 = gear_set
                     .get(*s2)
-                    .map(item_identity)
+                    .map(|v| item_identity(v.borrow()))
                     .unwrap_or_else(|| "none".to_string());
                 let (a, b) = if id1 <= id2 { (id1, id2) } else { (id2, id1) };
                 parts.push(format!("{}+{}={},{}", s1, s2, a, b));
@@ -107,7 +119,7 @@ pub(super) fn gear_set_identity_key(gear_set: &HashMap<String, Value>) -> String
         } else {
             let id = gear_set
                 .get(*slot)
-                .map(item_identity)
+                .map(|v| item_identity(v.borrow()))
                 .unwrap_or_else(|| "none".to_string());
             parts.push(format!("{}={}", slot, id));
         }
@@ -116,11 +128,14 @@ pub(super) fn gear_set_identity_key(gear_set: &HashMap<String, Value>) -> String
     parts.join("|")
 }
 
-pub(super) fn main_hand_is_two_hand(gear_set: &HashMap<String, Value>, spec: &str) -> bool {
+pub(super) fn main_hand_is_two_hand<V: Borrow<Value>>(
+    gear_set: &HashMap<String, V>,
+    spec: &str,
+) -> bool {
     if spec == "fury" {
         return false;
     }
-    let Some(mh) = gear_set.get("main_hand") else {
+    let Some(mh) = gear_set.get("main_hand").map(|v| v.borrow()) else {
         return false;
     };
     let mh_item_id = mh.get("item_id").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -138,10 +153,12 @@ pub(super) fn main_hand_is_two_hand(gear_set: &HashMap<String, Value>, spec: &st
     inv_type == 17
 }
 
-pub(super) fn validate_unique_equipped(gear_set: &HashMap<String, Value>) -> bool {
+pub(super) fn validate_unique_equipped<V: Borrow<Value>>(
+    gear_set: &HashMap<String, V>,
+) -> bool {
     for (slot1, slot2) in UNIQUE_SLOT_PAIRS {
-        let item1 = gear_set.get(*slot1);
-        let item2 = gear_set.get(*slot2);
+        let item1 = gear_set.get(*slot1).map(|v| v.borrow());
+        let item2 = gear_set.get(*slot2).map(|v| v.borrow());
         if let (Some(i1), Some(i2)) = (item1, item2) {
             let id1 = i1.get("item_id").and_then(|v| v.as_u64()).unwrap_or(0);
             let id2 = i2.get("item_id").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -153,12 +170,13 @@ pub(super) fn validate_unique_equipped(gear_set: &HashMap<String, Value>) -> boo
     true
 }
 
-pub(super) fn validate_item_limits(gear_set: &HashMap<String, Value>) -> bool {
+pub(super) fn validate_item_limits<V: Borrow<Value>>(gear_set: &HashMap<String, V>) -> bool {
     let mut category_counts: HashMap<u64, u64> = HashMap::new();
     let mut category_limits: HashMap<u64, u64> = HashMap::new();
 
     for item in gear_set.values() {
         let bonus_ids: Vec<u64> = item
+            .borrow()
             .get("bonus_ids")
             .and_then(|v| v.as_array())
             .map(|arr| arr.iter().filter_map(|b| b.as_u64()).collect())
@@ -264,7 +282,7 @@ mod tests {
 
     #[test]
     fn weapon_constraint_no_main_hand_passes() {
-        let gs = HashMap::new();
+        let gs: HashMap<String, Value> = HashMap::new();
         assert!(validate_weapon_constraint(&gs, "arms"));
     }
 
@@ -359,7 +377,7 @@ mod tests {
 
     #[test]
     fn main_hand_is_two_hand_no_main_hand_returns_false() {
-        let gs = HashMap::new();
+        let gs: HashMap<String, Value> = HashMap::new();
         assert!(!main_hand_is_two_hand(&gs, "arms"));
     }
 

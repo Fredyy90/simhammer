@@ -2,6 +2,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use super::base_profile::{item_meta, parse_base_profile};
 
@@ -135,7 +136,13 @@ pub fn generate_top_gear_input_with_talents(
     // Extract base profile info (non-gear lines) and equipped gear
     let (base_lines, equipped_gear, talents_string, spec) = parse_base_profile(base_profile);
 
-    let slot_item_lists = build_slot_candidates(base_profile, items_by_slot, selected_items);
+    // Items wrap in Arc so the per-combo `gear_set` build can do cheap O(1)
+    // refcount clones instead of deep-cloning each JSON Value 16 times per combo.
+    let slot_item_lists: HashMap<String, Vec<Arc<Value>>> =
+        build_slot_candidates(base_profile, items_by_slot, selected_items)
+            .into_iter()
+            .map(|(k, v)| (k, v.into_iter().map(Arc::new).collect()))
+            .collect();
 
     // Find slots that have alternatives (more than just equipped)
     let varying_slots: Vec<String> = slot_item_lists
@@ -156,7 +163,7 @@ pub fn generate_top_gear_input_with_talents(
     }
 
     // Build cartesian product across varying slots
-    let option_lists: Vec<&Vec<Value>> = varying_slots
+    let option_lists: Vec<&Vec<Arc<Value>>> = varying_slots
         .iter()
         .map(|slot| slot_item_lists.get(slot).unwrap())
         .collect();
@@ -176,12 +183,12 @@ pub fn generate_top_gear_input_with_talents(
     }
 
     // Filter invalid combos and build gear sets
-    let mut valid_combos: Vec<HashMap<String, Value>> = Vec::new();
+    let mut valid_combos: Vec<HashMap<String, Arc<Value>>> = Vec::new();
     let mut seen_combo_keys: HashSet<String> = HashSet::new();
 
     for combo_indices in &all_combos {
         // Build full gear set: start with equipped, override varying slots
-        let mut gear_set: HashMap<String, Value> = HashMap::new();
+        let mut gear_set: HashMap<String, Arc<Value>> = HashMap::new();
         for slot in GEAR_SLOTS {
             let slot = slot.to_string();
             if let Some(items) = slot_item_lists.get(&slot) {
@@ -194,14 +201,14 @@ pub fn generate_top_gear_input_with_talents(
                             .unwrap_or(false)
                     })
                     .unwrap_or(&items[0]);
-                gear_set.insert(slot, default.clone());
+                gear_set.insert(slot, Arc::clone(default));
             }
         }
 
         // Apply the combo choices
         for (i, slot) in varying_slots.iter().enumerate() {
             let item = &option_lists[i][combo_indices[i]];
-            gear_set.insert(slot.clone(), item.clone());
+            gear_set.insert(slot.clone(), Arc::clone(item));
         }
 
         // For non-Fury specs, a 2H main hand forces an empty off hand.
@@ -751,7 +758,7 @@ pub fn generate_top_gear_input_with_talents(
     };
 
     // For each gem combo × talent × gear × enchant, generate a profileset
-    let empty_gear_set: HashMap<String, Value> = HashMap::new();
+    let empty_gear_set: HashMap<String, Arc<Value>> = HashMap::new();
 
     for gem_combo_opt in &gem_iter {
         // Helper: apply gem combo to a simc string for a slot, if gem combo is active
@@ -765,7 +772,7 @@ pub fn generate_top_gear_input_with_talents(
 
         for (talent_idx, (talent_name, talent_str)) in effective_talents.iter().enumerate() {
             // Build gear iterator: for first talent, skip baseline gear; for others, include it.
-            let gear_iter: Vec<(bool, &HashMap<String, Value>)> = if talent_idx == 0 {
+            let gear_iter: Vec<(bool, &HashMap<String, Arc<Value>>)> = if talent_idx == 0 {
                 // First talent: baseline gear is base actor. Only alternatives here.
                 valid_combos.iter().map(|gs| (false, gs)).collect()
             } else {
