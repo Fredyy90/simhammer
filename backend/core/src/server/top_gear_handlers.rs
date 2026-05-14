@@ -119,6 +119,14 @@ pub(super) async fn create_top_gear_sim(
     let talent_builds = normalized_talent_builds(&req.talent_builds);
     let max_combinations = capped_max_combinations(req.max_combinations);
     let socketed_item_ids = socketed_item_ids(&resolved);
+    let gem_opts = profileset_generator::GemEnchantOptions {
+        enchant_selections: Some(&req.enchant_selections),
+        gem_options: &req.gem_options,
+        socketed_item_ids: Some(&socketed_item_ids),
+        replace_gems: req.replace_gems,
+        diamond_always_use: req.diamond_always_use,
+        max_colors: req.max_colors,
+    };
 
     let (generated_input, combo_count, combo_metadata) =
         match profileset_generator::generate_top_gear_input_with_talents(
@@ -128,12 +136,7 @@ pub(super) async fn create_top_gear_sim(
             max_combinations,
             &talent_builds,
             catalyst_charges,
-            &req.enchant_selections,
-            &req.gem_options,
-            &socketed_item_ids,
-            req.replace_gems,
-            req.diamond_always_use,
-            req.max_colors,
+            &gem_opts,
         ) {
             Ok(r) => r,
             Err(e) => {
@@ -233,6 +236,14 @@ pub(super) async fn get_top_gear_combo_count(req: web::Json<TopGearRequest>) -> 
     let talent_builds = normalized_talent_builds(&req.talent_builds);
     let max_combinations = capped_max_combinations(req.max_combinations);
     let socketed_item_ids = socketed_item_ids(&resolved);
+    let gem_opts = profileset_generator::GemEnchantOptions {
+        enchant_selections: Some(&req.enchant_selections),
+        gem_options: &req.gem_options,
+        socketed_item_ids: Some(&socketed_item_ids),
+        replace_gems: req.replace_gems,
+        diamond_always_use: req.diamond_always_use,
+        max_colors: req.max_colors,
+    };
 
     match profileset_generator::count_top_gear_combos_with_talents(
         &base_profile,
@@ -241,12 +252,7 @@ pub(super) async fn get_top_gear_combo_count(req: web::Json<TopGearRequest>) -> 
         max_combinations,
         &talent_builds,
         catalyst_charges,
-        &req.enchant_selections,
-        &req.gem_options,
-        &socketed_item_ids,
-        req.replace_gems,
-        req.diamond_always_use,
-        req.max_colors,
+        &gem_opts,
     ) {
         Ok(count) => HttpResponse::Ok().json(json!({ "combo_count": count })),
         Err(e) => {

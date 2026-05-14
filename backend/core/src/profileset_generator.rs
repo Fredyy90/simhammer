@@ -7,12 +7,43 @@ mod simc;
 mod top_gear;
 mod upgrade_compare;
 
+use once_cell::sync::Lazy;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
 type ProfilesetResult = Result<(String, usize, HashMap<String, Vec<Value>>), String>;
 
 use crate::db::MAX_COMBINATIONS;
+
+/// Gem and enchant variation options bundled together. Six related args that
+/// always travel as a unit in the top-gear and count entry points.
+#[derive(Default)]
+pub struct GemEnchantOptions<'a> {
+    /// Per-slot enchant IDs to sim in addition to the equipped one.
+    pub enchant_selections: Option<&'a HashMap<String, Vec<u64>>>,
+    /// Gem item IDs to apply across socketed slots.
+    pub gem_options: &'a [u64],
+    /// Item IDs known to carry a socket (inherent or via crafted_socket bonus).
+    pub socketed_item_ids: Option<&'a HashSet<u64>>,
+    /// Strip and replace existing gems instead of only filling empty sockets.
+    pub replace_gems: bool,
+    /// Force one diamond per emitted combo.
+    pub diamond_always_use: bool,
+    /// Prefer distinct gem colors across slots.
+    pub max_colors: bool,
+}
+
+static EMPTY_ENCHANTS: Lazy<HashMap<String, Vec<u64>>> = Lazy::new(HashMap::new);
+static EMPTY_SOCKETS: Lazy<HashSet<u64>> = Lazy::new(HashSet::new);
+
+impl<'a> GemEnchantOptions<'a> {
+    pub fn enchants(&self) -> &HashMap<String, Vec<u64>> {
+        self.enchant_selections.unwrap_or(&EMPTY_ENCHANTS)
+    }
+    pub fn sockets(&self) -> &HashSet<u64> {
+        self.socketed_item_ids.unwrap_or(&EMPTY_SOCKETS)
+    }
+}
 
 pub fn generate_top_gear_input(
     base_profile: &str,
@@ -28,7 +59,6 @@ pub fn generate_top_gear_input(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn generate_top_gear_input_with_talents(
     base_profile: &str,
     items_by_slot: &HashMap<String, Vec<Value>>,
@@ -36,12 +66,7 @@ pub fn generate_top_gear_input_with_talents(
     max_combos_override: Option<usize>,
     talent_builds: &[(String, String)],
     catalyst_charges: Option<u32>,
-    enchant_selections: &HashMap<String, Vec<u64>>,
-    gem_options: &[u64],
-    socketed_item_ids: &HashSet<u64>,
-    replace_gems: bool,
-    diamond_always_use: bool,
-    max_colors: bool,
+    gem_opts: &GemEnchantOptions,
 ) -> ProfilesetResult {
     top_gear::generate_top_gear_input_with_talents(
         base_profile,
@@ -50,12 +75,7 @@ pub fn generate_top_gear_input_with_talents(
         max_combos_override,
         talent_builds,
         catalyst_charges,
-        enchant_selections,
-        gem_options,
-        socketed_item_ids,
-        replace_gems,
-        diamond_always_use,
-        max_colors,
+        gem_opts,
         false,
     )
 }
@@ -63,7 +83,6 @@ pub fn generate_top_gear_input_with_talents(
 /// Count-only fast path. Skips building the simc_input string and metadata,
 /// returning just the emitted profileset count. Hit by the live UI combo-count
 /// endpoint on every selection toggle, so it must be cheap.
-#[allow(clippy::too_many_arguments)]
 pub fn count_top_gear_combos_with_talents(
     base_profile: &str,
     items_by_slot: &HashMap<String, Vec<Value>>,
@@ -71,12 +90,7 @@ pub fn count_top_gear_combos_with_talents(
     max_combos_override: Option<usize>,
     talent_builds: &[(String, String)],
     catalyst_charges: Option<u32>,
-    enchant_selections: &HashMap<String, Vec<u64>>,
-    gem_options: &[u64],
-    socketed_item_ids: &HashSet<u64>,
-    replace_gems: bool,
-    diamond_always_use: bool,
-    max_colors: bool,
+    gem_opts: &GemEnchantOptions,
 ) -> Result<usize, String> {
     top_gear::count_top_gear_combos_with_talents(
         base_profile,
@@ -85,12 +99,7 @@ pub fn count_top_gear_combos_with_talents(
         max_combos_override,
         talent_builds,
         catalyst_charges,
-        enchant_selections,
-        gem_options,
-        socketed_item_ids,
-        replace_gems,
-        diamond_always_use,
-        max_colors,
+        gem_opts,
     )
 }
 
@@ -136,7 +145,7 @@ mod tests {
     use super::{
         count_top_gear_combos_with_talents, generate_droptimizer_input,
         generate_enchant_gem_input, generate_top_gear_input_with_talents,
-        generate_upgrade_compare_input,
+        generate_upgrade_compare_input, GemEnchantOptions,
     };
     use crate::test_support::{ensure_game_data_loaded, TestItem};
     use serde_json::json;
@@ -325,6 +334,7 @@ finger1=,id=102,gem_id=213453\n";
         let diamond_id = 213738_u64;
         let colored_gem_id = 213453_u64;
 
+        let gems = [diamond_id, colored_gem_id];
         let (input, combo_count, metadata) = generate_top_gear_input_with_talents(
             base_profile,
             &HashMap::new(),
@@ -332,12 +342,12 @@ finger1=,id=102,gem_id=213453\n";
             Some(20),
             &[],
             None,
-            &HashMap::new(),
-            &[diamond_id, colored_gem_id],
-            &socketed_item_ids,
-            true,
-            false,
-            false,
+            &GemEnchantOptions {
+                gem_options: &gems,
+                socketed_item_ids: Some(&socketed_item_ids),
+                replace_gems: true,
+                ..Default::default()
+            },
         )
         .unwrap();
 
@@ -412,6 +422,7 @@ main_hand=,id=200\n";
         selected.insert("wrist".to_string(), vec!["300:13534:bags:wrist".to_string()]);
 
         let gems = [213453_u64, 213454_u64, 213455_u64, 213456_u64];
+        let sockets = HashSet::from([300_u64]);
         let (input, combo_count, _) = generate_top_gear_input_with_talents(
             base_profile,
             &items_by_slot,
@@ -419,12 +430,11 @@ main_hand=,id=200\n";
             Some(20),
             &[],
             None,
-            &HashMap::new(),
-            &gems,
-            &HashSet::from([300_u64]),
-            false,
-            false,
-            false,
+            &GemEnchantOptions {
+                gem_options: &gems,
+                socketed_item_ids: Some(&sockets),
+                ..Default::default()
+            },
         )
         .unwrap();
 
@@ -452,6 +462,8 @@ spec=frost\n\
 head=,id=100,gem_id=213453\n\
 main_hand=,id=200\n";
 
+        let gems = [213454_u64, 213455_u64];
+        let sockets = HashSet::from([100_u64]);
         let (_input, combo_count, _) = generate_top_gear_input_with_talents(
             base_profile,
             &HashMap::new(),
@@ -459,12 +471,12 @@ main_hand=,id=200\n";
             Some(20),
             &[],
             None,
-            &HashMap::new(),
-            &[213454_u64, 213455_u64],
-            &HashSet::from([100_u64]),
-            false, // replace_gems = false
-            false,
-            false,
+            &GemEnchantOptions {
+                gem_options: &gems,
+                socketed_item_ids: Some(&sockets),
+                // replace_gems intentionally left false
+                ..Default::default()
+            },
         )
         .unwrap();
 
@@ -522,6 +534,8 @@ main_hand=,id=200\n";
         let mut selected = HashMap::new();
         selected.insert("wrist".to_string(), vec!["300:13534:bags:wrist".to_string()]);
 
+        let gems = [213454_u64, 213455_u64, 213456_u64, 213457_u64];
+        let sockets = HashSet::from([100_u64, 300_u64]);
         let (input, combo_count, metadata) = generate_top_gear_input_with_talents(
             base_profile,
             &items_by_slot,
@@ -529,12 +543,11 @@ main_hand=,id=200\n";
             Some(20),
             &[],
             None,
-            &HashMap::new(),
-            &[213454_u64, 213455_u64, 213456_u64, 213457_u64],
-            &HashSet::from([100_u64, 300_u64]),
-            false,
-            false,
-            false,
+            &GemEnchantOptions {
+                gem_options: &gems,
+                socketed_item_ids: Some(&sockets),
+                ..Default::default()
+            },
         )
         .unwrap();
 
@@ -596,12 +609,7 @@ main_hand=,id=200\n";
             Some(20),
             &[],
             None,
-            &HashMap::new(),
-            &[],
-            &HashSet::new(),
-            false,
-            false,
-            false,
+            &GemEnchantOptions::default(),
         )
         .unwrap();
         assert_eq!(count, 0);
@@ -628,12 +636,7 @@ main_hand=,id=200\n";
             Some(20),
             &[],
             None,
-            &HashMap::new(),
-            &[],
-            &HashSet::new(),
-            false,
-            false,
-            false,
+            &GemEnchantOptions::default(),
         )
         .unwrap();
         // Only the alt combo emits; the all-equipped combo is the base actor.
@@ -666,12 +669,7 @@ main_hand=,id=200\n";
             Some(1),
             &[],
             None,
-            &HashMap::new(),
-            &[],
-            &HashSet::new(),
-            false,
-            false,
-            false,
+            &GemEnchantOptions::default(),
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -706,12 +704,7 @@ main_hand=,id=200\n";
             Some(50),
             &talents,
             None,
-            &HashMap::new(),
-            &[],
-            &HashSet::new(),
-            false,
-            false,
-            false,
+            &GemEnchantOptions::default(),
         )
         .unwrap();
         assert_eq!(count, 3);
@@ -748,12 +741,7 @@ finger2=,id=101\n";
             Some(50),
             &[],
             None,
-            &HashMap::new(),
-            &[],
-            &HashSet::new(),
-            false,
-            false,
-            false,
+            &GemEnchantOptions::default(),
         )
         .unwrap();
 
@@ -796,12 +784,7 @@ finger2=,id=101\n";
             Some(50),
             &[],
             None,
-            &HashMap::new(),
-            &[],
-            &HashSet::new(),
-            false,
-            false,
-            false,
+            &GemEnchantOptions::default(),
         )
         .unwrap();
 
@@ -848,12 +831,7 @@ finger2=,id=101\n";
             Some(50),
             &[],
             Some(1),
-            &HashMap::new(),
-            &[],
-            &HashSet::new(),
-            false,
-            false,
-            false,
+            &GemEnchantOptions::default(),
         )
         .unwrap();
 
@@ -876,12 +854,10 @@ finger2=,id=101\n";
             Some(20),
             &[],
             None,
-            &enchant_selections,
-            &[],
-            &HashSet::new(),
-            false,
-            false,
-            false,
+            &GemEnchantOptions {
+                enchant_selections: Some(&enchant_selections),
+                ..Default::default()
+            },
         )
         .unwrap();
 
@@ -896,6 +872,8 @@ finger2=,id=101\n";
         ensure_game_data_loaded();
         let base_profile = "mage=test\nspec=frost\nhead=,id=100,gem_id=213453\n";
 
+        let gems = [213454_u64]; // a different colored gem
+        let sockets = HashSet::from([100_u64]);
         let (input, count, _) = generate_top_gear_input_with_talents(
             base_profile,
             &HashMap::new(),
@@ -903,12 +881,12 @@ finger2=,id=101\n";
             Some(20),
             &[],
             None,
-            &HashMap::new(),
-            &[213454_u64], // a different colored gem
-            &HashSet::from([100_u64]),
-            true, // replace_gems = true
-            false,
-            false,
+            &GemEnchantOptions {
+                gem_options: &gems,
+                socketed_item_ids: Some(&sockets),
+                replace_gems: true,
+                ..Default::default()
+            },
         )
         .unwrap();
 
@@ -942,12 +920,7 @@ finger2=,id=101\n";
             Some(20),
             &[],
             None,
-            &HashMap::new(),
-            &[],
-            &HashSet::new(),
-            false,
-            false,
-            false,
+            &GemEnchantOptions::default(),
         )
         .unwrap();
         assert_eq!(count, 0);
@@ -974,12 +947,7 @@ finger2=,id=101\n";
             Some(20),
             &[],
             None,
-            &HashMap::new(),
-            &[],
-            &HashSet::new(),
-            false,
-            false,
-            false,
+            &GemEnchantOptions::default(),
         )
         .unwrap();
 
@@ -1112,6 +1080,12 @@ main_hand=,id=200\n";
         selected.insert("wrist".to_string(), vec!["300:13534:bags:wrist".to_string()]);
 
         let gems = [213454_u64, 213455_u64, 213456_u64];
+        let sockets = HashSet::from([100_u64, 300_u64]);
+        let gem_opts = GemEnchantOptions {
+            gem_options: &gems,
+            socketed_item_ids: Some(&sockets),
+            ..Default::default()
+        };
 
         let (_, full_count, _) = generate_top_gear_input_with_talents(
             base_profile,
@@ -1120,12 +1094,7 @@ main_hand=,id=200\n";
             Some(50),
             &[],
             None,
-            &HashMap::new(),
-            &gems,
-            &HashSet::from([100_u64, 300_u64]),
-            false,
-            false,
-            false,
+            &gem_opts,
         )
         .unwrap();
 
@@ -1136,12 +1105,7 @@ main_hand=,id=200\n";
             Some(50),
             &[],
             None,
-            &HashMap::new(),
-            &gems,
-            &HashSet::from([100_u64, 300_u64]),
-            false,
-            false,
-            false,
+            &gem_opts,
         )
         .unwrap();
 
@@ -1204,12 +1168,7 @@ main_hand=,id=200\n";
             Some(20),
             &[],
             None,
-            &HashMap::new(),
-            &[],
-            &HashSet::new(),
-            false,
-            false,
-            false,
+            &GemEnchantOptions::default(),
         )
         .unwrap();
 
@@ -1230,6 +1189,7 @@ main_hand=,id=200\n";
         let socketed = HashSet::from([100_u64]);
         let diamond_id = 213738_u64;
 
+        let gems = [diamond_id];
         let (input, count, _) = generate_top_gear_input_with_talents(
             base_profile,
             &HashMap::new(),
@@ -1237,12 +1197,12 @@ main_hand=,id=200\n";
             Some(20),
             &[],
             None,
-            &HashMap::new(),
-            &[diamond_id],
-            &socketed,
-            false,
-            true, // diamond_always_use
-            false,
+            &GemEnchantOptions {
+                gem_options: &gems,
+                socketed_item_ids: Some(&socketed),
+                diamond_always_use: true,
+                ..Default::default()
+            },
         )
         .unwrap();
 
@@ -1265,6 +1225,7 @@ neck=,id=101,bonus_id=13534\n";
 
         let socketed = HashSet::from([100_u64, 101_u64]);
 
+        let gems = [213453_u64, 213454_u64];
         let (_input, count, _) = generate_top_gear_input_with_talents(
             base_profile,
             &HashMap::new(),
@@ -1272,12 +1233,12 @@ neck=,id=101,bonus_id=13534\n";
             Some(50),
             &[],
             None,
-            &HashMap::new(),
-            &[213453_u64, 213454_u64],
-            &socketed,
-            false,
-            false,
-            true, // max_colors = true
+            &GemEnchantOptions {
+                gem_options: &gems,
+                socketed_item_ids: Some(&socketed),
+                max_colors: true,
+                ..Default::default()
+            },
         )
         .unwrap();
         assert!(count >= 1, "expected combos in max_colors mode");
@@ -1309,12 +1270,7 @@ head=,id=100\n";
             Some(20),
             &talent_builds,
             None,
-            &HashMap::new(),
-            &[],
-            &HashSet::new(),
-            false,
-            false,
-            false,
+            &GemEnchantOptions::default(),
         )
         .unwrap();
 
@@ -1346,12 +1302,7 @@ head=,id=100\n";
             Some(20),
             &[],
             None,
-            &HashMap::new(),
-            &[],
-            &HashSet::new(),
-            false,
-            false,
-            false,
+            &GemEnchantOptions::default(),
         )
         .unwrap();
 
@@ -1365,6 +1316,8 @@ head=,id=100\n";
         // Bonus 13534 adds a socket. Equipped head has the socket but no gem.
         let base_profile = "mage=test\nspec=frost\nhead=,id=100,bonus_id=13534\n";
 
+        let gems = [213453_u64, 213454_u64];
+        let sockets = HashSet::from([100_u64]);
         let (input, count, _) = generate_top_gear_input_with_talents(
             base_profile,
             &HashMap::new(),
@@ -1372,12 +1325,11 @@ head=,id=100\n";
             Some(20),
             &[],
             None,
-            &HashMap::new(),
-            &[213453_u64, 213454_u64],
-            &HashSet::from([100_u64]),
-            false,
-            false,
-            false,
+            &GemEnchantOptions {
+                gem_options: &gems,
+                socketed_item_ids: Some(&sockets),
+                ..Default::default()
+            },
         )
         .unwrap();
 
@@ -1399,12 +1351,7 @@ head=,id=100\n";
             Some(20),
             &[],
             None,
-            &HashMap::new(),
-            &[],
-            &HashSet::new(),
-            false,
-            false,
-            false,
+            &GemEnchantOptions::default(),
         )
         .unwrap();
         assert_eq!(count, 0);
@@ -1426,12 +1373,7 @@ head=,id=100\n";
             Some(20),
             &talents,
             None,
-            &HashMap::new(),
-            &[],
-            &HashSet::new(),
-            false,
-            false,
-            false,
+            &GemEnchantOptions::default(),
         )
         .unwrap();
         // 2 talents × 1 equipped gear set - 1 base actor = 1 emit
@@ -1467,12 +1409,7 @@ head=,id=100\n";
             Some(20),
             &[],
             None,
-            &HashMap::new(),
-            &[],
-            &HashSet::new(),
-            false,
-            false,
-            false,
+            &GemEnchantOptions::default(),
         )
         .unwrap();
 
@@ -1497,6 +1434,8 @@ head=,id=100\n";
         let mut selected = HashMap::new();
         selected.insert("chest".to_string(), vec![uid(201, &[], "bags", "chest")]);
 
+        let gems = [213453_u64, 213454_u64];
+        let sockets = HashSet::from([100_u64]);
         let (_, count, _) = generate_top_gear_input_with_talents(
             base_profile,
             &items_by_slot,
@@ -1504,12 +1443,11 @@ head=,id=100\n";
             Some(50),
             &[],
             None,
-            &HashMap::new(),
-            &[213453_u64, 213454_u64],
-            &HashSet::from([100_u64]),
-            false,
-            false,
-            false,
+            &GemEnchantOptions {
+                gem_options: &gems,
+                socketed_item_ids: Some(&sockets),
+                ..Default::default()
+            },
         )
         .unwrap();
 

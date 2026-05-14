@@ -15,7 +15,7 @@ use super::simc::{
     extract_spec_id_from_talent_string, gem_color, is_diamond, set_enchant_id, set_gem_id,
     simc_has_socket,
 };
-use super::{ProfilesetResult, MAX_COMBINATIONS};
+use super::{GemEnchantOptions, ProfilesetResult, MAX_COMBINATIONS};
 use crate::game_data;
 use crate::types::class_data::{self, GEAR_SLOTS};
 
@@ -65,12 +65,7 @@ pub fn generate_top_gear_input(
         max_combos_override,
         &[],
         None,
-        &HashMap::new(),
-        &[],
-        &HashSet::new(),
-        false,
-        false,
-        false,
+        &GemEnchantOptions::default(),
         false,
     )
 }
@@ -79,7 +74,6 @@ pub fn generate_top_gear_input(
 /// output strings or metadata. Used by the live combo-count endpoint, which is
 /// hit on every selection change in the UI and would otherwise re-do all the
 /// per-emit formatting work just to discard it.
-#[allow(clippy::too_many_arguments)]
 pub fn count_top_gear_combos_with_talents(
     base_profile: &str,
     items_by_slot: &HashMap<String, Vec<Value>>,
@@ -87,12 +81,7 @@ pub fn count_top_gear_combos_with_talents(
     max_combos_override: Option<usize>,
     talent_builds: &[(String, String)],
     catalyst_charges: Option<u32>,
-    enchant_selections: &HashMap<String, Vec<u64>>,
-    gem_options: &[u64],
-    socketed_item_ids: &HashSet<u64>,
-    replace_gems: bool,
-    diamond_always_use: bool,
-    max_colors: bool,
+    gem_opts: &GemEnchantOptions,
 ) -> Result<usize, String> {
     generate_top_gear_input_with_talents(
         base_profile,
@@ -101,12 +90,7 @@ pub fn count_top_gear_combos_with_talents(
         max_combos_override,
         talent_builds,
         catalyst_charges,
-        enchant_selections,
-        gem_options,
-        socketed_item_ids,
-        replace_gems,
-        diamond_always_use,
-        max_colors,
+        gem_opts,
         true,
     )
     .map(|(_, count, _)| count)
@@ -114,7 +98,6 @@ pub fn count_top_gear_combos_with_talents(
 
 /// Generate top-gear profileset input, optionally multiplying by talent builds
 /// and enchant/gem variations.
-#[allow(clippy::too_many_arguments)]
 pub fn generate_top_gear_input_with_talents(
     base_profile: &str,
     items_by_slot: &HashMap<String, Vec<Value>>,
@@ -122,14 +105,15 @@ pub fn generate_top_gear_input_with_talents(
     max_combos_override: Option<usize>,
     talent_builds: &[(String, String)],
     catalyst_charges: Option<u32>,
-    enchant_selections: &HashMap<String, Vec<u64>>,
-    gem_options: &[u64],
-    socketed_item_ids: &HashSet<u64>,
-    replace_gems: bool,
-    diamond_always_use: bool,
-    max_colors: bool,
+    gem_opts: &GemEnchantOptions,
     count_only: bool,
 ) -> ProfilesetResult {
+    let enchant_selections = gem_opts.enchants();
+    let gem_options = gem_opts.gem_options;
+    let socketed_item_ids = gem_opts.sockets();
+    let replace_gems = gem_opts.replace_gems;
+    let diamond_always_use = gem_opts.diamond_always_use;
+    let max_colors = gem_opts.max_colors;
     // Extract base profile info (non-gear lines) and equipped gear
     let (base_lines, equipped_gear, talents_string, spec) = parse_base_profile(base_profile);
 
