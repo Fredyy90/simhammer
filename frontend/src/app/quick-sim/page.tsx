@@ -107,7 +107,7 @@ function useEquippedGear(simcInput: string): Record<string, GearItem> | null {
 }
 
 export default function QuickSimPage() {
-  const { simcInput, hasInput } = useSimContext();
+  const { simcInput, hasInput, statWeights } = useSimContext();
   const { t } = useLanguage();
 
   const characterInfo = useMemo(() => parseCharacterInfo(simcInput), [simcInput]);
@@ -127,9 +127,9 @@ export default function QuickSimPage() {
   const buildPayload = useCallback(
     () => ({
       simc_input: simcInput,
-      sim_type: 'quick',
+      sim_type: statWeights ? 'stat_weights' : 'quick',
     }),
-    [simcInput]
+    [simcInput, statWeights]
   );
 
   const validate = useCallback(() => {
@@ -222,6 +222,7 @@ export default function QuickSimPage() {
         submitting={submitting}
         buttonLabel={buttonLabel(t('button.runSimulation'))}
         disabled={!hasInput}
+        showStatWeightsToggle
       />
     </div>
   );

@@ -11,6 +11,8 @@ interface ConfigFooterProps {
   submitting: boolean;
   buttonLabel: string;
   disabled?: boolean;
+  /** Render a stat-weights toggle in the footer bar (Quick Sim only). */
+  showStatWeightsToggle?: boolean;
 }
 
 export default function ConfigFooter({
@@ -19,6 +21,7 @@ export default function ConfigFooter({
   submitting,
   buttonLabel,
   disabled,
+  showStatWeightsToggle,
 }: ConfigFooterProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'simulation' | 'buffs'>('simulation');
@@ -51,6 +54,7 @@ export default function ConfigFooter({
         submitting={submitting}
         buttonLabel={buttonLabel}
         disabled={disabled}
+        showStatWeightsToggle={showStatWeightsToggle}
       />
     </div>
   );

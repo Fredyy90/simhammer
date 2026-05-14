@@ -59,6 +59,9 @@ interface SimContextType {
   // Profileset parallelism toggle (for A/B testing the SimC perf flag).
   parallelProfilesets: boolean;
   setParallelProfilesets: (v: boolean) => void;
+  // Quick Sim: calculate stat weights (off by default — adds ~8× sim time).
+  statWeights: boolean;
+  setStatWeights: (v: boolean) => void;
 }
 
 const SimContext = createContext<SimContextType | null>(null);
@@ -137,6 +140,7 @@ export function SimProvider({ children }: { children: ReactNode }) {
   const [talentBuilds, setTalentBuilds] = useState<{ name: string; talentString: string }[]>([]);
   const [scenarios, setScenarios] = useState<FightScenario[]>([]);
   const [parallelProfilesets, setParallelProfilesets] = useState(true);
+  const [statWeights, _setStatWeights] = useState(false);
 
   useEffect(() => {
     try {
@@ -147,6 +151,7 @@ export function SimProvider({ children }: { children: ReactNode }) {
         const n = parseFloat(storedError);
         if (Number.isFinite(n) && n > 0) _setTargetError(n);
       }
+      _setStatWeights(localStorage.getItem('simhammer_stat_weights') === 'true');
       const storedBranch = normalizeSimcBranch(localStorage.getItem('simhammer_simc_branch') ?? '');
       _setSimcBranch(storedBranch);
       if (storedBranch) {
@@ -242,6 +247,13 @@ export function SimProvider({ children }: { children: ReactNode }) {
     } catch {}
   }, []);
 
+  const setStatWeights = useCallback((v: boolean) => {
+    _setStatWeights(v);
+    try {
+      localStorage.setItem('simhammer_stat_weights', String(v));
+    } catch {}
+  }, []);
+
   return (
     <SimContext.Provider
       value={{
@@ -290,6 +302,8 @@ export function SimProvider({ children }: { children: ReactNode }) {
         clearScenarios,
         parallelProfilesets,
         setParallelProfilesets,
+        statWeights,
+        setStatWeights,
       }}
     >
       {children}

@@ -10,6 +10,9 @@ interface ConfigFooterBarProps {
   submitting: boolean;
   buttonLabel: string;
   disabled?: boolean;
+  /** Show an inline stat-weights opt-in toggle. Quick Sim only — staged flows
+   * (Top Gear, Drop Finder) compute scale factors per-actor which is too expensive. */
+  showStatWeightsToggle?: boolean;
 }
 
 export default function ConfigFooterBar({
@@ -19,9 +22,10 @@ export default function ConfigFooterBar({
   submitting,
   buttonLabel,
   disabled,
+  showStatWeightsToggle,
 }: ConfigFooterBarProps) {
   const { t } = useLanguage();
-  const { fightStyle, fightLength, targetCount } = useSimContext();
+  const { fightStyle, fightLength, targetCount, statWeights, setStatWeights } = useSimContext();
   const fightLengthLabel = `${Math.floor(fightLength / 60)}:${String(fightLength % 60).padStart(2, '0')}`;
 
   return (
@@ -35,6 +39,25 @@ export default function ConfigFooterBar({
           <span className="font-mono tabular-nums">
             {targetCount} {targetCount === 1 ? t('config.boss') : t('config.bosses')}
           </span>
+          {showStatWeightsToggle && (
+            <>
+              <span className="h-4 w-px bg-outline-variant/30" />
+              <label
+                className="flex cursor-pointer select-none items-center gap-2"
+                title={t('config.statWeightsHint')}
+              >
+                <input
+                  type="checkbox"
+                  checked={statWeights}
+                  onChange={(e) => setStatWeights(e.target.checked)}
+                  className="h-3.5 w-3.5 accent-primary"
+                />
+                <span className="text-[11px] font-bold uppercase tracking-widest">
+                  {t('config.statWeights')}
+                </span>
+              </label>
+            </>
+          )}
         </div>
 
         <div className="flex-1" />
