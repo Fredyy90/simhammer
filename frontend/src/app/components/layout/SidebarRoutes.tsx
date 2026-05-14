@@ -36,7 +36,7 @@ export default function SidebarRoutes() {
   const handleLoadRoute = useCallback(
     (mdtString: string) => {
       setSimcFooter(mdtString);
-      setFightStyle('DungeonRoute');
+      setFightStyle('Patchwerk');
     },
     [setSimcFooter, setFightStyle]
   );
@@ -106,13 +106,13 @@ export default function SidebarRoutes() {
               return (
                 <div
                   key={route.id}
-                  className={`flex items-center justify-between rounded-md px-2.5 py-1.5 ${
+                  className={`flex items-center rounded-md ${
                     isActive ? 'bg-gold/[0.08]' : 'hover:bg-surface-container'
                   }`}
                 >
                   <button
                     onClick={() => handleLoadRoute(route.mdt_string)}
-                    className={`min-w-0 truncate text-[13px] transition-colors ${
+                    className={`min-w-0 flex-1 truncate px-2.5 py-1.5 text-left text-[13px] transition-colors ${
                       isActive
                         ? 'font-medium text-gold'
                         : 'text-on-surface-variant hover:text-on-surface'
@@ -122,7 +122,7 @@ export default function SidebarRoutes() {
                   </button>
                   <button
                     onClick={() => deleteSavedRoute(route.id).then(refreshRoutes)}
-                    className="ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-on-surface-variant/30 transition-colors hover:bg-red-400/10 hover:text-red-400"
+                    className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-on-surface-variant/30 transition-colors hover:bg-red-400/10 hover:text-red-400"
                   >
                     <svg
                       className="h-3.5 w-3.5"
