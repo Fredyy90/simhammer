@@ -561,8 +561,7 @@ pub fn generate_top_gear_input_with_talents(
         lines.extend(base_lines.clone());
         lines.push("### Combo 1".to_string());
         for slot in GEAR_SLOTS {
-            let slot_str = slot.to_string();
-            if let Some(gear_val) = equipped_gear.get(&slot_str) {
+            if let Some(gear_val) = equipped_gear.get(*slot) {
                 lines.push(format!("{}={}", slot, gear_val));
             } else if *slot == "off_hand" {
                 lines.push("off_hand=,".to_string());
@@ -784,10 +783,9 @@ pub fn generate_top_gear_input_with_talents(
             // Skip if the gem combo doesn't actually change any equipped slot.
             if talent_idx == 0 && gem_combo_opt.is_some() {
                 let any_gem_change = GEAR_SLOTS.iter().any(|slot| {
-                    let slot_str = slot.to_string();
                     equipped_gear
-                        .get(&slot_str)
-                        .map(|gear_val| gem_simc(&slot_str, gear_val) != *gear_val)
+                        .get(*slot)
+                        .map(|gear_val| gem_simc(slot, gear_val) != *gear_val)
                         .unwrap_or(false)
                 });
                 if any_gem_change {
@@ -795,9 +793,8 @@ pub fn generate_top_gear_input_with_talents(
                         let combo_name = format!("Combo {}", combo_number);
                         lines.push(format!("### {}", combo_name));
                         for slot in GEAR_SLOTS {
-                            let slot_str = slot.to_string();
-                            if let Some(gear_val) = equipped_gear.get(&slot_str) {
-                                let val = gem_simc(&slot_str, gear_val);
+                            if let Some(gear_val) = equipped_gear.get(*slot) {
+                                let val = gem_simc(slot, gear_val);
                                 lines.push(format!(
                                     "profileset.\"{}\"+={}={}",
                                     combo_name, slot, val
@@ -830,10 +827,9 @@ pub fn generate_top_gear_input_with_talents(
                 for eg_idx in &eg_combos {
                     // Check if this eg combo actually changes any equipped slot
                     let any_change = GEAR_SLOTS.iter().any(|slot| {
-                        let slot_str = slot.to_string();
                         equipped_gear
-                            .get(&slot_str)
-                            .and_then(|gear_val| apply_eg_combo(&slot_str, gear_val, eg_idx))
+                            .get(*slot)
+                            .and_then(|gear_val| apply_eg_combo(slot, gear_val, eg_idx))
                             .is_some()
                     });
                     if !any_change {
@@ -845,11 +841,9 @@ pub fn generate_top_gear_input_with_talents(
                         lines.push(format!("### {}", combo_name));
 
                         for slot in GEAR_SLOTS {
-                            let slot_str = slot.to_string();
-                            if let Some(gear_val) = equipped_gear.get(&slot_str) {
-                                let modified = apply_eg_combo(&slot_str, gear_val, eg_idx);
-                                let val =
-                                    gem_simc(&slot_str, modified.as_deref().unwrap_or(gear_val));
+                            if let Some(gear_val) = equipped_gear.get(*slot) {
+                                let modified = apply_eg_combo(slot, gear_val, eg_idx);
+                                let val = gem_simc(slot, modified.as_deref().unwrap_or(gear_val));
                                 lines.push(format!(
                                     "profileset.\"{}\"+={}={}",
                                     combo_name, slot, val
@@ -945,11 +939,9 @@ pub fn generate_top_gear_input_with_talents(
                     if *is_equipped_with_new_talent {
                         // Same gear as base actor (possibly with enchant/gem overrides)
                         for slot in GEAR_SLOTS {
-                            let slot_str = slot.to_string();
-                            if let Some(gear_val) = equipped_gear.get(&slot_str) {
-                                let modified = apply_eg_combo(&slot_str, gear_val, eg_idx);
-                                let val =
-                                    gem_simc(&slot_str, modified.as_deref().unwrap_or(gear_val));
+                            if let Some(gear_val) = equipped_gear.get(*slot) {
+                                let modified = apply_eg_combo(slot, gear_val, eg_idx);
+                                let val = gem_simc(slot, modified.as_deref().unwrap_or(gear_val));
                                 lines.push(format!(
                                     "profileset.\"{}\"+={}={}",
                                     combo_name, slot, val
@@ -962,8 +954,7 @@ pub fn generate_top_gear_input_with_talents(
                         // Different gear combination (possibly with enchant/gem overrides)
                         let mut combo_mh_is_two_hand = false;
                         for slot in GEAR_SLOTS {
-                            let slot_str = slot.to_string();
-                            if let Some(item) = gear_set.get(&slot_str) {
+                            if let Some(item) = gear_set.get(*slot) {
                                 if *slot == "main_hand" {
                                     let item_id =
                                         item.get("item_id").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -981,11 +972,9 @@ pub fn generate_top_gear_input_with_talents(
                                         .get("simc_string")
                                         .and_then(|s| s.as_str())
                                         .unwrap_or("");
-                                    let modified = apply_eg_combo(&slot_str, simc_str, eg_idx);
-                                    let val = gem_simc(
-                                        &slot_str,
-                                        modified.as_deref().unwrap_or(simc_str),
-                                    );
+                                    let modified = apply_eg_combo(slot, simc_str, eg_idx);
+                                    let val =
+                                        gem_simc(slot, modified.as_deref().unwrap_or(simc_str));
                                     lines.push(format!(
                                         "profileset.\"{}\"+={}={}",
                                         combo_name, slot, val
@@ -1047,14 +1036,13 @@ pub fn generate_top_gear_input_with_talents(
                             if paired_display_slots.contains(slot) {
                                 continue;
                             }
-                            let slot_str = slot.to_string();
-                            if let Some(item) = gear_set.get(&slot_str) {
+                            if let Some(item) = gear_set.get(*slot) {
                                 let is_equipped = item
                                     .get("is_equipped")
                                     .and_then(|v| v.as_bool())
                                     .unwrap_or(true);
                                 if !is_equipped {
-                                    combo_items.push(item_meta(item, &slot_str));
+                                    combo_items.push(item_meta(item, slot));
                                 }
                             }
                         }
