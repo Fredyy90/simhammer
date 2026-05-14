@@ -756,6 +756,11 @@ pub fn generate_top_gear_input_with_talents(
     // For each gem combo × talent × gear × enchant, generate a profileset
     let empty_gear_set: HashMap<String, Arc<Value>> = HashMap::new();
 
+    // Cache socketed-slot sets keyed by (gear_set pointer, eg_idx). The set
+    // depends only on gear+eg, not on the current gem combo, so once computed
+    // it's reused across all gem_iter passes.
+    let mut socketed_cache: HashMap<(usize, Vec<usize>), HashSet<String>> = HashMap::new();
+
     for gem_combo_opt in &gem_iter {
         // Helper: apply gem combo to a simc string for a slot, if gem combo is active
         let gem_simc = |slot: &str, simc: &str| -> String {
@@ -1053,17 +1058,25 @@ pub fn generate_top_gear_input_with_talents(
                         combo_items.extend(build_eg_meta(eg_idx));
                     }
                     if let Some(gc) = gem_combo_opt {
-                        let socketed: HashSet<String> = GEAR_SLOTS
-                            .iter()
-                            .filter(|slot| {
-                                simc_for_slot(slot).is_some_and(|v| {
-                                    let modified = apply_eg_combo(slot, v, eg_idx);
-                                    simc_has_socket(modified.as_deref().unwrap_or(v))
+                        // Cache key: (gear_set ptr, eg_idx). Valid because every
+                        // gear_set in gear_iter references either empty_gear_set
+                        // (stack-stable within this fn) or a valid_combos entry
+                        // (heap-stable for the function's lifetime).
+                        let cache_key =
+                            (*gear_set as *const _ as usize, eg_idx.clone());
+                        let socketed = socketed_cache.entry(cache_key).or_insert_with(|| {
+                            GEAR_SLOTS
+                                .iter()
+                                .filter(|slot| {
+                                    simc_for_slot(slot).is_some_and(|v| {
+                                        let modified = apply_eg_combo(slot, v, eg_idx);
+                                        simc_has_socket(modified.as_deref().unwrap_or(v))
+                                    })
                                 })
-                            })
-                            .map(|s| s.to_string())
-                            .collect();
-                        combo_items.extend(build_gem_meta(gc, Some(&socketed)));
+                                .map(|s| s.to_string())
+                                .collect()
+                        });
+                        combo_items.extend(build_gem_meta(gc, Some(socketed)));
                     }
 
                     // Tag with talent build name and spec if comparing talents
