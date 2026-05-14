@@ -3,7 +3,6 @@ name: Publish & Deploy
 on:
   push:
     tags: ["v*"]
-    branches: [dev]
   workflow_dispatch:
 
 env:
@@ -24,8 +23,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    # Dev branch ships amd64 only; arm64 is built for tags / master only.
-    if: ${{ matrix.platform == 'linux/amd64' || github.ref != 'refs/heads/dev' }}
     steps:
       - name: Prepare platform pair
         run: |
