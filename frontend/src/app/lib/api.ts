@@ -1,9 +1,10 @@
-// API URL detection: desktop app uses a fixed local server port
-// Use 127.0.0.1 (not localhost) to match the backend bind address and avoid
-// IPv6 resolution issues on Windows where localhost may resolve to ::1
+// API URL detection: in Electron, the backend serves the frontend on the
+// same origin, so window.location.origin always points at the right backend
+// (matters when the Electron main process falls back to an ephemeral port
+// because 17384 was already in use — see desktop/src/main/backend.js).
 export const API_URL =
   typeof window !== 'undefined' && window.electronAPI
-    ? 'http://127.0.0.1:17384'
+    ? window.location.origin
     : (process.env.NEXT_PUBLIC_API_URL ?? '');
 
 /** Fetch JSON with consistent error handling. Throws on non-ok responses. */
