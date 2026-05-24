@@ -92,7 +92,7 @@ pub(super) async fn create_enchant_gem_sim(
         simc_runner::build_simc_input_from_options(&generated_input, &options_json_eg);
     let job = Job::new(
         display_input_eg,
-        "enchant_gem".to_string(),
+        crate::models::SimMode::EnchantGem.as_wire().to_string(),
         req.options.iterations,
         req.options.fight_style.clone(),
         req.options.target_error,
@@ -100,11 +100,14 @@ pub(super) async fn create_enchant_gem_sim(
     let job_id = job.id.clone();
     let created_at = job.created_at.clone();
 
-    let meta_json = serde_json::to_string(&json!({
-        "_combo_metadata": combo_metadata,
-        "_combo_count": combo_count,
-    }))
-    .unwrap_or_default();
+    let meta_json = serde_json::to_string(&combo_metadata).unwrap_or_default();
+
+    // Resolve simc BEFORE insert — invalid branch must not create an orphan
+    // Pending row.
+    let simc = match simc_bins.resolve(&req.options.simc_branch) {
+        Ok(path) => path,
+        Err(e) => return HttpResponse::BadRequest().json(json!({"detail": e})),
+    };
 
     let mut job = job;
     job.combo_metadata_json = Some(meta_json);
@@ -112,11 +115,6 @@ pub(super) async fn create_enchant_gem_sim(
     if let Err(e) = repo.insert(&job).await {
         return HttpResponse::InternalServerError().json(json!({"detail": e.to_string()}));
     }
-
-    let simc = match simc_bins.resolve(&req.options.simc_branch) {
-        Ok(path) => path,
-        Err(e) => return HttpResponse::BadRequest().json(json!({"detail": e})),
-    };
 
     spawn_staged_sim(
         repo.get_ref().clone(),

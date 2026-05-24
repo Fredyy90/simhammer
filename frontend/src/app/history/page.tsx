@@ -5,6 +5,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { API_URL } from '../lib/api';
 import { useLanguage } from '../lib/i18n';
 import { useSimContext } from '../components/sim-config/SimContext';
+import { formatDps } from '../lib/format';
+import { loadLastCharacter, parseCharacterInfo } from '../lib/character';
+import { getSimTypeColorClass, getSimTypeLabel } from '../lib/simTypes';
 
 interface JobSummary {
   id: string;
@@ -29,24 +32,6 @@ const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
   cancelled: { dot: 'bg-on-surface-variant', label: 'Cancelled' },
 };
 
-const SIM_TYPE_LABELS: Record<string, string> = {
-  quick: 'Quick Sim',
-  top_gear: 'Top Gear',
-  droptimizer: 'Drop Finder',
-};
-
-const SIM_TYPE_COLORS: Record<string, string> = {
-  quick: 'bg-primary/10 text-primary border-primary/20',
-  top_gear: 'bg-tertiary/10 text-tertiary border-tertiary/20',
-  droptimizer: 'bg-secondary/10 text-secondary border-secondary/20',
-};
-
-function formatDps(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
-  return Math.round(value).toLocaleString();
-}
-
 function timeAgo(
   dateStr: string,
   t: (key: string, params?: Record<string, string | number>) => string
@@ -58,31 +43,6 @@ function timeAgo(
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return t('time.hoursAgo', { h: hours });
   return t('time.daysAgo', { d: Math.floor(hours / 24) });
-}
-
-function extractCharacter(simcInput: string): { name: string; realm: string } | null {
-  let name = '';
-  let realm = '';
-  for (const line of simcInput.split('\n')) {
-    const trimmed = line.trim();
-    if (!name) {
-      const match = trimmed.match(
-        /^(?:warrior|paladin|hunter|rogue|priest|death_knight|deathknight|shaman|mage|warlock|monk|druid|demon_hunter|demonhunter|evoker)\s*=\s*"(.+)"/
-      );
-      if (match) name = match[1];
-    }
-    if (!realm && trimmed.startsWith('server=')) {
-      realm = trimmed.slice(7);
-    }
-    if (name && realm) break;
-  }
-  if (name && realm) {
-    try {
-      localStorage.setItem('simhammer_last_character', JSON.stringify({ name, realm }));
-    } catch {}
-    return { name, realm };
-  }
-  return null;
 }
 
 /* ── Row ─────────────────────────────────────────────────── */
@@ -99,12 +59,7 @@ function SimRow({ sim }: { sim: JobSummary }) {
       pending: t('status.pending'),
       cancelled: t('status.cancelled'),
     }[sim.status] || t('status.pending');
-  const simTypeLabel =
-    {
-      quick: t('simType.quickSim'),
-      top_gear: t('simType.topGear'),
-      droptimizer: t('simType.dropFinder'),
-    }[sim.sim_type] || sim.sim_type;
+  const simTypeLabel = getSimTypeLabel(sim.sim_type, t);
 
   return (
     <Link
@@ -136,7 +91,7 @@ function SimRow({ sim }: { sim: JobSummary }) {
       {/* Col 3 – Sim Type */}
       <div className="col-span-2 text-center">
         <span
-          className={`inline-block rounded border px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${SIM_TYPE_COLORS[sim.sim_type] || 'border-outline-variant/10 bg-surface-container-highest text-on-surface-variant'}`}
+          className={`inline-block rounded border px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${getSimTypeColorClass(sim.sim_type)}`}
         >
           {simTypeLabel}
         </span>
@@ -207,16 +162,7 @@ function groupByBatch(sims: JobSummary[]): HistoryEntry[] {
 function BatchGroup({ entry }: { entry: Extract<HistoryEntry, { type: 'batch' }> }) {
   const { t } = useLanguage();
   const first = entry.sims[0];
-  const simType =
-    (
-      {
-        quick: t('simType.quickSim'),
-        top_gear: t('simType.topGear'),
-        droptimizer: t('simType.dropFinder'),
-      } as Record<string, string>
-    )[first?.sim_type] ||
-    first?.sim_type ||
-    'Sim';
+  const simType = first?.sim_type ? getSimTypeLabel(first.sim_type, t) : 'Sim';
 
   return (
     <div className="border-b border-outline-variant/10">
@@ -354,13 +300,11 @@ export default function HistoryPage() {
 
   useEffect(() => {
     if (isDesktop !== false) return;
-    let char = extractCharacter(simcInput);
-    if (!char) {
-      try {
-        const stored = localStorage.getItem('simhammer_last_character');
-        if (stored) char = JSON.parse(stored);
-      } catch {}
-    }
+    const info = parseCharacterInfo(simcInput);
+    const char =
+      info?.name && info.realm
+        ? { name: info.name, realm: info.realm }
+        : loadLastCharacter();
     setCharacter(char);
     if (!char) {
       setSims([]);

@@ -14,22 +14,7 @@ import { specDisplayName } from '../lib/types';
 import { API_URL } from '../lib/api';
 import type { ResolveGearResponse } from '../lib/types';
 import { useLanguage } from '../lib/i18n';
-
-function parseCharacterInfo(input: string) {
-  if (!input) return null;
-  const nameMatch = input.match(/^(\w+)="(.+)"$/m);
-  const specMatch = input.match(/^spec=(\w+)/m);
-  const realmMatch = input.match(/^server=(.+)$/m);
-  const regionMatch = input.match(/^region=(\w+)/m);
-  if (!nameMatch) return null;
-  return {
-    className: nameMatch[1],
-    name: nameMatch[2],
-    spec: specMatch?.[1] || 'unknown',
-    realm: realmMatch?.[1] || null,
-    region: regionMatch?.[1] || 'eu',
-  };
-}
+import { parseCharacterInfo } from '../lib/character';
 
 interface LastSim {
   id: string;

@@ -1,5 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 
+import { formatDps } from '../../lib/format';
+
 interface AbilityRow {
   name: string;
   portion_dps: number;
@@ -15,12 +17,6 @@ interface ResultsChartRowProps {
   expandable?: boolean;
   expanded?: boolean;
   onToggle?: () => void;
-}
-
-function formatDps(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${Math.round(value / 1_000)}k`;
-  return Math.round(value).toLocaleString();
 }
 
 export default function ResultsChartRow({
@@ -102,7 +98,7 @@ export default function ResultsChartRow({
         </div>
       </div>
       <div className="w-24 shrink-0 text-right">
-        <span className={dpsValueClass}>{formatDps(ability.portion_dps)}</span>
+        <span className={dpsValueClass}>{formatDps(ability.portion_dps, 0)}</span>
         <span className={dpsLabelClass}>DPS</span>
       </div>
     </div>

@@ -370,6 +370,9 @@
   "simType.quickSim": "Quick Sim",
   "simType.topGear": "Top Gear",
   "simType.dropFinder": "Drop Finder",
+  "simType.crestUpgrades": "Crest Upgrades",
+  "simType.enchantGem": "Enchant/Gem",
+  "simType.statWeights": "Stat Weights",
 
   "time.justNow": "just now",
   "time.minutesAgo": "{m}m ago",

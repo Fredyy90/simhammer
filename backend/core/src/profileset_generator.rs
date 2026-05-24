@@ -11,9 +11,74 @@ use once_cell::sync::Lazy;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
+use crate::db::MAX_COMBINATIONS;
+
+/// Typed result for every profileset generator. Replaces an ad-hoc tuple +
+/// stringly error pair so handlers stop parsing "(N)" out of error messages
+/// to recover the limit-exceeded count for the UI.
+pub struct GeneratedProfilesets {
+    pub input: String,
+    pub combo_count: usize,
+    pub metadata: HashMap<String, Vec<Value>>,
+}
+
+/// Typed generator failure. Carries enough structured context that callers
+/// don't need to inspect error message text. `Other` is a catch-all for the
+/// older raw-string failure paths inside the per-generator modules that we
+/// haven't migrated yet — those should be tightened over time.
+#[derive(Debug, Clone)]
+pub enum GeneratorError {
+    /// User selection produced 0 valid combos. The UI may want to show a
+    /// targeted message ("nothing to sim — pick more items") rather than a
+    /// generic error.
+    NoValidCombinations,
+    /// Selection produced too many combos for the configured limit. The UI
+    /// uses `count` to show "you've selected N — the cap is M" without
+    /// having to parse it out of a string.
+    TooMany { count: usize, limit: usize },
+    /// Any other generator-time failure.
+    Other(String),
+}
+
+impl GeneratorError {
+    pub fn to_message(&self) -> String {
+        match self {
+            GeneratorError::NoValidCombinations => "No valid combinations to simulate".to_string(),
+            GeneratorError::TooMany { count, limit } => format!(
+                "Too many combinations ({count}). Maximum is {limit}. Please deselect some items."
+            ),
+            GeneratorError::Other(msg) => msg.clone(),
+        }
+    }
+}
+
+/// Internal-only legacy type alias, kept while we migrate generator modules
+/// to return `Result<GeneratedProfilesets, GeneratorError>` directly. Public
+/// callers should use the typed entry points below.
 type ProfilesetResult = Result<(String, usize, HashMap<String, Vec<Value>>), String>;
 
-use crate::db::MAX_COMBINATIONS;
+/// Try to parse a generator's stringly error into the typed variant. Until
+/// every per-generator module returns typed errors, this is the seam that
+/// keeps handlers from re-implementing the regex of the message text.
+pub(crate) fn classify_generator_error(msg: &str) -> GeneratorError {
+    if let Some(rest) = msg.strip_prefix("Too many combinations (") {
+        if let Some(count_str) = rest.split(')').next() {
+            if let Ok(count) = count_str.parse::<usize>() {
+                let limit = msg
+                    .split("Maximum is ")
+                    .nth(1)
+                    .and_then(|s| s.split('.').next())
+                    .and_then(|s| s.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                return GeneratorError::TooMany { count, limit };
+            }
+        }
+    }
+    if msg.to_lowercase().contains("no valid") || msg.contains("no combinations") {
+        return GeneratorError::NoValidCombinations;
+    }
+    GeneratorError::Other(msg.to_string())
+}
 
 /// Gem and enchant variation options bundled together. Six related args that
 /// always travel as a unit in the top-gear and count entry points.
@@ -141,6 +206,41 @@ pub fn generate_enchant_gem_input(
 }
 
 #[cfg(test)]
+mod classifier_tests {
+    use super::{classify_generator_error, GeneratorError};
+
+    #[test]
+    fn parses_too_many_with_count_and_limit() {
+        let msg = "Too many combinations (12345). Maximum is 5000. Please deselect some items.";
+        match classify_generator_error(msg) {
+            GeneratorError::TooMany { count, limit } => {
+                assert_eq!(count, 12345);
+                assert_eq!(limit, 5000);
+            }
+            other => panic!("expected TooMany, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_no_valid_combinations() {
+        let msg = "No valid combinations to simulate after filtering";
+        assert!(matches!(
+            classify_generator_error(msg),
+            GeneratorError::NoValidCombinations
+        ));
+    }
+
+    #[test]
+    fn falls_back_to_other() {
+        let msg = "Some unexpected internal error";
+        match classify_generator_error(msg) {
+            GeneratorError::Other(s) => assert_eq!(s, msg),
+            other => panic!("expected Other, got {other:?}"),
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::{
         count_top_gear_combos_with_talents, generate_droptimizer_input,
@@ -205,6 +305,9 @@ main_hand=,id=200\n";
 
     #[test]
     fn droptimizer_ring_drop_inherits_gem_and_enchant() {
+        // Drop carries bonus 13534 (= +1 socket per fixture), so gem
+        // inheritance from the equipped finger is allowed for both slots.
+        crate::test_support::ensure_game_data_loaded();
         let base_profile = "\
 mage=test\n\
 spec=frost\n\
@@ -218,22 +321,22 @@ main_hand=,id=200\n";
             "name": "Test Ring",
             "encounter": "Unit Test",
             "inventory_type": 11,
-            "bonus_ids": [123],
-            "slot_inherits": [
-                { "slot": "finger1", "enchant_id": 7437, "gem_id": 213743 },
-                { "slot": "finger2", "enchant_id": 7438, "gem_id": 213744 }
-            ]
+            "bonus_ids": [13534],
         })];
 
         let (input, combo_count, metadata) = generate_droptimizer_input(base_profile, &drop_items);
 
         assert_eq!(combo_count, 2);
         assert!(
-            input.contains("finger1=,id=555,ilevel=671,bonus_id=123,enchant_id=7437,gem_id=213743"),
+            input.contains(
+                "finger1=,id=555,ilevel=671,bonus_id=13534,enchant_id=7437,gem_id=213743"
+            ),
             "expected finger1 profileset with inherited enchant + gem; got:\n{input}"
         );
         assert!(
-            input.contains("finger2=,id=555,ilevel=671,bonus_id=123,enchant_id=7438,gem_id=213744"),
+            input.contains(
+                "finger2=,id=555,ilevel=671,bonus_id=13534,enchant_id=7438,gem_id=213744"
+            ),
             "expected finger2 profileset with inherited enchant + gem; got:\n{input}"
         );
 

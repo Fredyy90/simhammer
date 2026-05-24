@@ -11,6 +11,57 @@ use crate::result_parser;
 use crate::simc_runner;
 use crate::types::ResolveGearResponse;
 
+/// Write the terminal state for a simulation job (success or failure).
+///
+/// One place owns: parsing the simc result into the user-facing shape,
+/// stamping the realm onto it, persisting result/raw/report rows, and
+/// suppressing the error write when the job was already cancelled. Use
+/// this from every code path that drives a job to completion so the
+/// finalize semantics can't drift across handlers.
+///
+/// `parse` lets callers pick the result-shape parser their sim mode emits
+/// (single-actor `parse_simc_result` vs gear-comparison `parse_top_gear_result`
+/// + metadata). Both shapes go through the same terminal-state guard.
+pub(super) async fn finalize_job_outcome(
+    repo: &JobRepo,
+    job_id: &str,
+    simc_input: &str,
+    result: Result<simc_runner::SimcOutput, String>,
+    parse: impl FnOnce(&Value) -> Value,
+) {
+    match result {
+        Ok(output) => {
+            let mut parsed = parse(&output.json);
+            inject_realm(&mut parsed, simc_input);
+            let result_str = serde_json::to_string(&parsed).unwrap_or_default();
+            let raw_str = serde_json::to_string(&output.json).ok();
+            if let Err(e) = repo.set_result(job_id, &result_str, raw_str.as_deref()).await {
+                eprintln!("[{}] Failed to set result: {}", job_id, e);
+            }
+            if let Err(e) = repo
+                .set_report_files(
+                    job_id,
+                    output.html_report.as_deref(),
+                    output.text_output.as_deref(),
+                )
+                .await
+            {
+                eprintln!("[{}] Failed to set report files: {}", job_id, e);
+            }
+        }
+        Err(e) => {
+            // CANCEL_ERR is the explicit cancellation marker. set_error also
+            // refuses to overwrite a Cancelled job (terminal-state invariant)
+            // but skipping the call keeps the eprintln from firing.
+            if e != simc_runner::CANCEL_ERR {
+                if let Err(db_err) = repo.set_error(job_id, &e).await {
+                    eprintln!("[{}] Failed to set error: {}", job_id, db_err);
+                }
+            }
+        }
+    }
+}
+
 /// Sanitize user-provided custom SimC input by stripping dangerous directives.
 pub(super) fn sanitize_custom_simc(input: &str) -> String {
     let blocked = regex::Regex::new(r"(?mi)^\s*(output|html|json2?|xml)\s*=").unwrap();
@@ -297,9 +348,13 @@ pub(super) fn spawn_staged_sim(
     log_buffer: Arc<LogBuffer>,
 ) {
     tokio::spawn(async move {
+        // update_status now honors the terminal-state invariant: if the job
+        // was cancelled between create and spawn, this is a no-op and the
+        // staged loop will hit its first cancellation gate and abort cleanly.
         if let Err(e) = repo.update_status(&job_id, JobStatus::Running).await {
             eprintln!("[{}] Failed to set Running status: {}", job_id, e);
         }
+        let cancel_token = crate::cancel::CancelToken::new(repo.clone(), job_id.clone());
 
         // Channel for ordered progress/stage writes
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<JobUpdate>();
@@ -361,6 +416,7 @@ pub(super) fn spawn_staged_sim(
             move |line| {
                 logs.push_line(&jid_logs, line.to_string());
             },
+            Some(cancel_token),
         )
         .await;
 
@@ -370,53 +426,31 @@ pub(super) fn spawn_staged_sim(
             eprintln!("[{}] Job update writer task failed: {}", job_id, e);
         }
 
-        // Terminal writes — after all progress is flushed
-        match result {
-            Ok(output) => {
-                let job_snap = repo.get(&job_id).await.ok().flatten();
-                let meta: Option<HashMap<String, Vec<Value>>> = job_snap
-                    .as_ref()
-                    .and_then(|j| j.combo_metadata_json.as_ref())
-                    .and_then(|s| serde_json::from_str::<Value>(s).ok())
-                    .and_then(|v| v.get("_combo_metadata").cloned())
-                    .and_then(|v| serde_json::from_value(v).ok());
-
-                let mut parsed = result_parser::parse_top_gear_result(&output.json, meta.as_ref());
-                inject_realm(&mut parsed, &simc_input);
-                let result_str = serde_json::to_string(&parsed).unwrap_or_default();
-                let raw_str = serde_json::to_string(&output.json).ok();
-                if let Err(e) = repo
-                    .set_result(&job_id, &result_str, raw_str.as_deref())
-                    .await
-                {
-                    eprintln!("[{}] Failed to set result: {}", job_id, e);
-                }
-                if let Err(e) = repo
-                    .set_report_files(
-                        &job_id,
-                        output.html_report.as_deref(),
-                        output.text_output.as_deref(),
-                    )
-                    .await
-                {
-                    eprintln!("[{}] Failed to set report files: {}", job_id, e);
-                }
-            }
-            Err(e) => {
-                let is_cancelled = repo
-                    .get(&job_id)
-                    .await
+        // Load metadata once for the gear-comparison parser. Try the current
+        // bare format first; fall back to the pre-Phase-0.6 wrapped form so a
+        // deploy landing while sims are running doesn't lose their metadata.
+        let meta: Option<HashMap<String, Vec<Value>>> = repo
+            .get(&job_id)
+            .await
+            .ok()
+            .flatten()
+            .as_ref()
+            .and_then(|j| j.combo_metadata_json.as_ref())
+            .and_then(|s| {
+                serde_json::from_str::<HashMap<String, Vec<Value>>>(s)
                     .ok()
-                    .flatten()
-                    .map(|j| j.status == JobStatus::Cancelled)
-                    .unwrap_or(false);
-                if !is_cancelled {
-                    if let Err(db_err) = repo.set_error(&job_id, &e).await {
-                        eprintln!("[{}] Failed to set error: {}", job_id, db_err);
-                    }
-                }
-            }
-        }
+                    .or_else(|| {
+                        serde_json::from_str::<Value>(s)
+                            .ok()
+                            .and_then(|v| v.get("_combo_metadata").cloned())
+                            .and_then(|v| serde_json::from_value(v).ok())
+                    })
+            });
+
+        finalize_job_outcome(&repo, &job_id, &simc_input, result, |json| {
+            result_parser::parse_top_gear_result(json, meta.as_ref())
+        })
+        .await;
         log_buffer.remove(&job_id);
     });
 }

@@ -96,21 +96,24 @@ pub(super) async fn get_sim_logs(
 
 pub(super) async fn cancel_sim(path: web::Path<String>, repo: web::Data<JobRepo>) -> HttpResponse {
     let job_id = path.into_inner();
-    let job = match repo.get(&job_id).await {
-        Ok(Some(j)) => j,
-        Ok(None) => return HttpResponse::NotFound().json(json!({"detail": "Job not found"})),
-        Err(e) => {
-            return HttpResponse::InternalServerError().json(json!({"detail": e.to_string()}));
-        }
-    };
 
-    match job.status {
-        JobStatus::Pending | JobStatus::Running => {
-            let _ = repo.update_status(&job_id, JobStatus::Cancelled).await;
+    // Atomic transition closes the read-then-write race: a separate `get`
+    // followed by `update_status(Cancelled)` could clobber a Done write that
+    // landed between the two calls. `cancel_if_active` succeeds only when the
+    // row is still Pending or Running.
+    match repo.cancel_if_active(&job_id).await {
+        Ok(true) => {
             simc_runner::kill_job(&job_id);
             HttpResponse::Ok().json(json!({"status": "cancelled"}))
         }
-        _ => HttpResponse::BadRequest().json(json!({"detail": "Job is not running"})),
+        Ok(false) => match repo.get(&job_id).await {
+            Ok(Some(_)) => {
+                HttpResponse::BadRequest().json(json!({"detail": "Job is not running"}))
+            }
+            Ok(None) => HttpResponse::NotFound().json(json!({"detail": "Job not found"})),
+            Err(e) => HttpResponse::InternalServerError().json(json!({"detail": e.to_string()})),
+        },
+        Err(e) => HttpResponse::InternalServerError().json(json!({"detail": e.to_string()})),
     }
 }
 
