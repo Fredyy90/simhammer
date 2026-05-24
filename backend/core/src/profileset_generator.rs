@@ -655,6 +655,61 @@ main_hand=,id=200\n";
         }
     }
 
+    // Regression: an equipped 2-socket neck with two existing gems must produce
+    // gem-combo metadata with TWO entries for the neck (one per socket), not one.
+    // Reported by Jeffrey: result page showed only 1 gem on the neck even after
+    // the simc_socket_count fix correctly placed 2 gems in the simc string.
+    #[test]
+    fn top_gear_multi_socket_neck_metadata_has_two_gem_entries() {
+        ensure_game_data_loaded();
+        // Equipped neck has 2 gems already (`gem_id=240908/240908`) but only
+        // one socket-adding bonus (13668). simc_socket_count's max() between
+        // bonus-count and gem-count yields 2; gem_combo[neck] must have 2 ids,
+        // and build_gem_meta must emit 2 metadata entries.
+        let base_profile = "\
+hunter=test\n\
+spec=beast_mastery\n\
+neck=,id=250247,gem_id=240908/240908,bonus_id=13668\n\
+main_hand=,id=200\n";
+
+        let gems = [240900_u64, 240890_u64, 240892_u64];
+        let sockets = HashSet::from([250247_u64]);
+        let (_input, _combo_count, metadata) = generate_top_gear_input_with_talents(
+            base_profile,
+            &HashMap::new(),
+            &HashMap::new(),
+            Some(50),
+            &[],
+            None,
+            &GemEnchantOptions {
+                gem_options: &gems,
+                socketed_item_ids: Some(&sockets),
+                replace_gems: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        // Every emitted combo's metadata should have two `type:gem, slot:neck`
+        // entries — one per socket. (Excluding the baseline "Currently Equipped".)
+        for (combo_name, items) in &metadata {
+            if combo_name.starts_with("Currently Equipped") {
+                continue;
+            }
+            let neck_gem_entries = items
+                .iter()
+                .filter(|v| {
+                    v.get("type").and_then(|t| t.as_str()) == Some("gem")
+                        && v.get("slot").and_then(|s| s.as_str()) == Some("neck")
+                })
+                .count();
+            assert_eq!(
+                neck_gem_entries, 2,
+                "{combo_name} must carry 2 gem metadata entries for the neck (got {neck_gem_entries}): {items:?}"
+            );
+        }
+    }
+
     // Regression: with replace_gems=false, an already-gemmed equipped socket must
     // keep its gem. Was broken when `apply_gem` called `set_gem_id` unconditionally
     // and `alt_has_socket` treated already-gemmed items as eligible empty sockets.
